@@ -1,24 +1,29 @@
-# assignment-sync
+# I wish I could remember when my homework was due
 
-Turns your **Gradescope** and **Canvas** deadlines into **Google Tasks** reminders automatically.
+So I kept missing Gradescope deadlines because they were buried across four different course pages, and bCourses had its own set, and I was never going to check both every day. This script does the checking for me.
 
-Every run pulls each upcoming, unsubmitted assignment from both sites and creates a reminder for it in Google Tasks — one task list per course, dated on the due date (or a few days before, if you prefer). Re-running is safe: it remembers what it already added, moves reminders whose due dates change, and ticks them off once you've submitted. Set it up once, schedule it, and your phone's Google Tasks widget always shows what's due.
-
-Works with any school's Canvas instance (bCourses, Canvas LMS, etc.) — set the URL in `.env`.
+It logs into Gradescope and Canvas, grabs everything that's due soon and that you haven't submitted yet, and drops each one into Google Tasks as a reminder — one list per course, so your Tasks sidebar ends up looking like this:
 
 ```
 EECS 126
-  ☐ Lab 1                                   Sep 9
-      Due: Wed Sep 09, 11:59 PM
-      https://www.gradescope.com/courses/.../assignments/...
-  ☐ Homework 1 - Self Grade                 Sep 10
+  ☐ Lab 1                          Sep 9
+  ☐ Homework 1 - Self Grade        Sep 10
+EE 66
+  ☐ HW1                            Sep 4
+  ☐ Lecture 1B Mini-Vitamin        Sep 5
 ```
 
-## Setup (~10 minutes, once)
+Each task has the exact deadline and a link back to the assignment in its notes. Run it on a schedule and you never have to think about it again: if a due date gets pushed, the reminder moves with it, and once you've submitted, the task gets checked off automatically. It won't create duplicates no matter how many times it runs.
 
-Requires Python 3.10+.
+I built it for Berkeley, but it works with any school that uses Canvas — you just change one URL.
 
-### 1. Install
+## Getting it running
+
+Honestly the code is the easy part. Most of the setup is convincing Google to give you an API key, which takes about ten minutes of clicking through the Cloud Console. I've written out every step because I got stuck on several of them.
+
+You'll need Python 3.10 or newer.
+
+### Step 1: Download and install
 
 ```bash
 git clone https://github.com/ShreekarKarjagi/I_wish_I_could_remember_when_my_home_work_was_due.git assignment-sync
@@ -29,78 +34,82 @@ pip install -r requirements.txt
 cp .env.example .env        # Windows: copy .env.example .env
 ```
 
-### 2. Gradescope
+Everything you're about to set up goes into that `.env` file. It stays on your computer — it's git-ignored, so you can't accidentally commit it.
 
-Gradescope has no API, so the script logs in with your email and password (stored only in your local `.env`). If you normally sign in through your school's SSO and have never set a Gradescope password, go to https://www.gradescope.com/reset_password, enter your school email, and set one — SSO keeps working alongside it. Put both in `.env`.
+### Step 2: Gradescope
 
-### 3. Canvas token
+Gradescope doesn't have an API, so the script just logs in the same way you do, with an email and password.
 
-In Canvas: **Account → Settings → Approved Integrations → + New Access Token**. Name it anything, leave expiry blank, copy the token into `CANVAS_TOKEN` in `.env`, and set `CANVAS_BASE_URL` to your school's Canvas address (e.g. `https://bcourses.berkeley.edu` or `https://canvas.instructure.com`).
+If you've only ever used your school's SSO to log in and don't have a Gradescope password, go to https://www.gradescope.com/reset_password, enter your school email, and set one. Your SSO login keeps working; you'll just also have a password now. Put both in `.env`.
 
-Make sure the token is on the **same line** as `CANVAS_TOKEN=` — a stray line break makes the script think it's empty.
+### Step 3: Canvas
 
-### 4. Google Tasks credentials
+Canvas does have a proper API, and you can make yourself a key in about thirty seconds. In Canvas go to **Account → Settings**, scroll down to **Approved Integrations**, and click **+ New Access Token**. Name it anything, leave the expiry blank, and copy the long string it gives you into `CANVAS_TOKEN` in `.env`.
 
-1. **Create a project.** Go to https://console.cloud.google.com, sign in with a Google account (it doesn't have to be the one whose Tasks you'll use — see step 4). Click the project dropdown at the top → **New Project** → name it `assignment-sync` → Location/Parent: **No organization** → **Create**. Make sure it's selected afterwards.
-2. **Enable the API.** Left menu → **APIs & Services → Library** → search "Google Tasks API" → **Enable**.
-3. **Consent screen.** **APIs & Services → OAuth consent screen** (newer consoles redirect to **Google Auth Platform** → "Get started"). App name `assignment-sync`, support email = yours, Audience = **External**, contact email = yours → **Create**.
-4. **Add yourself as a test user.** Google Auth Platform → **Audience** → **+ Add users** → enter the email of the Google account whose Tasks you want to use (this can be a school account) → **Save**. Without this you'll get `Error 403: access_denied` at login.
-5. **Create the OAuth client.** **APIs & Services → Credentials** (or Google Auth Platform → **Clients**) → **+ Create Credentials → OAuth client ID** → Application type **Desktop app** → **Create** → **Download JSON**.
-6. **Place the file.** Rename the download (`client_secret_…json`) to exactly `credentials.json` and put it in this folder.
-7. **Authorize once.** Run `python sync.py`. A browser tab opens: pick the account you added in step 4, click **Continue** past the "Google hasn't verified this app" warning (it's your own app), then **Allow**. A `token.json` is saved and reused silently from then on.
+Also set `CANVAS_BASE_URL` to your school's Canvas address. For Berkeley that's `https://bcourses.berkeley.edu`, which is already the default.
 
-**Avoid weekly re-login:** while the app is in *Testing* status, tokens expire after 7 days. Once it works, go to Google Auth Platform → **Audience** → **Publish app** → Confirm. Ignore the verification notice — an unverified published app still works for personal use and its tokens don't expire.
+One thing that bit me: make sure the token ends up on the same line as `CANVAS_TOKEN=`. If it wraps onto the line below, the script thinks it's blank and quietly skips Canvas.
 
-### 5. Run it
+### Step 4: Google (the annoying part)
+
+Google Tasks needs an OAuth app to write to it, and Google makes you create one yourself. Here's the whole thing:
+
+1. Go to https://console.cloud.google.com and sign in. Any Google account is fine — it doesn't have to be the one whose Tasks you'll use.
+2. Click the project dropdown at the top → **New Project**. Call it `assignment-sync`. If it asks for a Location or Parent, pick **No organization**. Create it, then make sure it's selected in the dropdown.
+3. Left menu → **APIs & Services → Library**. Search for "Google Tasks API" and hit **Enable**.
+4. Left menu → **APIs & Services → OAuth consent screen**. Newer versions of the console bounce you to a page called **Google Auth Platform** with a "Get started" button — click it. App name `assignment-sync`, support email = yours, audience **External**, contact email = yours. Create.
+5. Now the step that got me: go to **Audience** (or the "Test users" section, on older consoles) and click **+ Add users**. Add the email of whatever Google account you want the reminders in — a school account works fine. If you skip this, the login later fails with a cryptic `Error 403: access_denied`.
+6. **APIs & Services → Credentials** → **+ Create Credentials** → **OAuth client ID**. Application type is **Desktop app**. Create it, then click **Download JSON**.
+7. The downloaded file is called something like `client_secret_123456…json`. Rename it to exactly `credentials.json` and drop it in the project folder.
+
+### Step 5: Run it
 
 ```bash
-python sync.py --dry-run   # shows what it would add, changes nothing
-python sync.py             # does it for real
+python sync.py --dry-run   # shows what it would add without touching anything
+python sync.py             # the real thing
 ```
 
-## Scheduling
+The first real run opens a browser tab asking you to sign in to Google. Pick the account you added in step 5. Google will warn you that the app isn't verified — that's because *you* made it five minutes ago, so click **Continue** (sometimes hidden behind "Advanced") and then **Allow**. It saves a `token.json` and never asks again.
 
-### Windows (Task Scheduler)
+Now open Google Tasks — the sidebar in Gmail or Calendar, or the app on your phone — and your assignments should be there.
 
-`run_sync.bat` uses the project's `.venv` and appends output to `sync.log`. In PowerShell (edit the path):
+**One more Google thing.** While your app is in "Testing" mode, Google expires the login after 7 days, meaning you'd have to redo the browser step weekly. To stop that, go back to Google Auth Platform → **Audience** → **Publish app** and confirm. It'll mention verification; ignore it. Unverified apps work fine for personal use, they just show that warning screen at login.
+
+## Making it run by itself
+
+That's the whole point, really.
+
+**Windows.** The included `run_sync.bat` runs the script using the project's `.venv` and appends its output to `sync.log`. Open PowerShell and register it with Task Scheduler (fix the path first):
 
 ```powershell
 schtasks /Create /TN "AssignmentSync" /SC DAILY /ST 07:00 /TR "C:\path\to\assignment-sync\run_sync.bat" /F
 ```
 
-Test it immediately with `schtasks /Run /TN "AssignmentSync"`, then check `sync.log`. Every 6 hours instead: `/SC HOURLY /MO 6`. Remove with `schtasks /Delete /TN "AssignmentSync" /F`. If it should run while you're logged out, open Task Scheduler → the task → Properties → *Run whether user is logged on or not*.
+To test it without waiting for 7 AM: `schtasks /Run /TN "AssignmentSync"`, then look at `sync.log`. If you want it every 6 hours instead, swap in `/SC HOURLY /MO 6`. To get rid of it: `schtasks /Delete /TN "AssignmentSync" /F`.
 
-### macOS / Linux (cron)
+**Mac / Linux.** Same idea with cron:
 
 ```bash
 chmod +x run_sync.sh
 crontab -e
-# add: run daily at 7:00
+# add this line to run every day at 7:00
 0 7 * * * /path/to/assignment-sync/run_sync.sh
 ```
 
-## Options (`.env`)
+## Tweaking it
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `LOOKAHEAD_DAYS` | 21 | Only create reminders for assignments due within this many days |
-| `REMIND_DAYS_BEFORE` | 0 | Date the reminder this many days before the due date (the real deadline is always in the task notes) |
-| `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |
+There are two knobs in `.env`. `LOOKAHEAD_DAYS` (default 21) is how far ahead it looks — anything due later than that gets picked up on a future run once it's within range. `REMIND_DAYS_BEFORE` (default 0) shifts the task's date earlier than the actual deadline, if you'd rather see things two days out. The real due date is always written in the task notes either way.
 
-## Course names
+Course names are a small mess: Gradescope calls a class "CS 61A" while Canvas calls it "2026-FA-COMPSCI-61A-001". The script normalizes both so they end up in the same list. If a course lands somewhere weird, open `course_aliases.json` and add a line mapping the raw name to whatever you want the list called. The department abbreviations near the top of `sync.py` are Berkeley-specific; edit them if your school uses different ones.
 
-Gradescope shows "CS 61A"; Canvas often shows "2026-FA-COMPSCI-61A-001". The script normalizes both to `CS 61A` so they share one list. If something lands in the wrong list, add a mapping to `course_aliases.json` (raw name → list name) and re-run. The department abbreviations in `DEPT_ALIASES` at the top of `sync.py` are Berkeley-flavored; edit them for your school.
+## Files it makes
 
-## Files it creates (all git-ignored)
-
-- `token.json` — your Google login; delete it to re-authorize.
-- `synced.json` — memory of what has been added. Delete it to re-add everything (you'll get duplicates in Google Tasks unless you clear those too).
-- `sync.log` — output from scheduled runs.
+`token.json` is your Google login (delete it to re-authorize), `synced.json` is its memory of what it's already added (delete it and it'll re-add everything, so clear your Tasks lists too), and `sync.log` is the output from scheduled runs. All three are git-ignored, along with `.env` and `credentials.json`. Please don't commit any of them.
 
 ## Privacy
 
-Everything runs on your own machine. Your Gradescope password and Canvas token live only in your local `.env`; nothing is sent anywhere except to Gradescope, Canvas, and Google's Tasks API. Never commit `.env`, `credentials.json`, or `token.json` — the included `.gitignore` already excludes them.
+Nothing leaves your computer except requests to Gradescope, Canvas, and Google's own Tasks API. Your password and tokens live only in your local `.env`. There's no server, no analytics, no anything.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. Do what you want with it.
