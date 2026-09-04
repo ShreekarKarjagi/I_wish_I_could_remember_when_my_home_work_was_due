@@ -78,15 +78,6 @@ The first real run opens a browser tab:
 
 It saves a `token.json` and never asks again. Open Google Tasks and your assignments are there. 🎉
 
-<details>
-<summary>🤓 Why is there no Google Cloud setup?</summary>
-
-The repo ships with a `credentials.json` for an OAuth app I registered. It only identifies the app to Google — it can't access anyone's account by itself. You still log in with your own account, and your own `token.json` stays on your computer.
-
-Google caps unverified apps at 100 users. If the login ever fails with a message about that, or you'd rather use your own, create a **Desktop app** OAuth client in the [Google Cloud Console](https://console.cloud.google.com) (enable the Google Tasks API, create the client, download the JSON) and replace `credentials.json` with it.
-</details>
-
----
 
 ## 🔁 Run It Automatically
 
@@ -122,15 +113,6 @@ All in `.env`:
 | `LOOKAHEAD_DAYS` | `21` | Only create reminders for assignments due within this many days |
 | `REMIND_DAYS_BEFORE` | `0` | Date the reminder this many days *before* the deadline (the real due date is always in the notes) |
 | `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |
-
-### 🏷️ Course names
-
-Gradescope says `CS 61A`; Canvas says `2026-FA-COMPSCI-61A-001`. The script normalizes both into one list.
-
-- Something in the wrong list? Add a mapping in `course_aliases.json` (raw name → list name)
-- Different department abbreviations at your school? Edit `DEPT_ALIASES` at the top of `sync.py`
-
----
 
 ## 📁 Files It Creates
 
