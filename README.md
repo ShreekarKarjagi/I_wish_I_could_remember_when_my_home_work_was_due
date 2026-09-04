@@ -19,7 +19,7 @@ I built it for Berkeley, but it works with any school that uses Canvas — you j
 
 ## Getting it running
 
-Honestly the code is the easy part. Most of the setup is convincing Google to give you an API key, which takes about ten minutes of clicking through the Cloud Console. I've written out every step because I got stuck on several of them.
+Honestly the code is the easy part. Most of the setup is convincing Google to give you an API key, which takes about ten minutes of clicking through the Cloud Console. I've written out every step because I got stuck on several of them. If you get stuck or feel like its getting to complicated the at any point just copy the project into an llm along with this readme and follow the steps it gives you 
 
 You'll need Python 3.10 or newer.
 
