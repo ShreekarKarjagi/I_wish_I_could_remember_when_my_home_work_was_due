@@ -1,0 +1,5 @@
+{
+  "_comment": "Optional. Map a raw course name (as Gradescope/bCourses shows it) or a normalized label to the Google Tasks list name you want. Delete this key or leave the file as-is if you don't need it.",
+  "EECS 16A Lab": "EECS 16A",
+  "COMPSCI 61A": "CS 61A"
+}

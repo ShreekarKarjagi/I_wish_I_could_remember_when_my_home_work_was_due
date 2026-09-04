@@ -1,0 +1,14 @@
+# secrets and per-user state — never commit these
+.env
+credentials.json
+token.json
+synced.json
+sync.log
+
+# python / IDE
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/

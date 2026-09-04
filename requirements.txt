@@ -1,0 +1,5 @@
+gradescopeapi>=1.0
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
+python-dotenv>=1.0
+requests>=2.31
