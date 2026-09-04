@@ -1,7 +1,7 @@
 # secrets and per-user state — never commit these
+# (credentials.json is intentionally NOT ignored: it's a public desktop OAuth client id, see README)
 .env
-credentials.json
-token.json
+token.json*
 synced.json
 sync.log
 
