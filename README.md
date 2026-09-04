@@ -21,7 +21,7 @@ Requires Python 3.10+.
 ### 1. Install
 
 ```bash
-git clone https://github.com/<you>/assignment-sync.git
+git clone https://github.com/ShreekarKarjagi/I_wish_I_could_remember_when_my_home_work_was_due.git assignment-sync
 cd assignment-sync
 python -m venv .venv
 # Windows: .venv\Scripts\activate      macOS/Linux: source .venv/bin/activate
