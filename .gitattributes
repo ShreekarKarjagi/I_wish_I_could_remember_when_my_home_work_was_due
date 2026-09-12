@@ -1,0 +1,7 @@
+# Shell scripts must keep LF endings -- a CRLF shebang line breaks them,
+# and Windows checkouts with core.autocrlf=true would otherwise convert them.
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# Batch files expect CRLF.
+*.bat text eol=crlf
