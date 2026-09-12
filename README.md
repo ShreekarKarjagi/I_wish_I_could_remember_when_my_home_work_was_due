@@ -1,25 +1,18 @@
-# 📚 I Wish I Could Remember When My Homework Was Due
+# I Wish I Could Remember When My Homework Was Due
 
-A Python script that **pulls your Gradescope and Canvas deadlines and turns them into Google Tasks reminders** — automatically, every day, without you ever opening either site.
+A script that checks Gradescope and Canvas for upcoming assignments and turns them into reminders — in Google Tasks or Notion, whichever you use — so you don't have to open either site to know what's due.
 
-Built with **gradescopeapi** for Gradescope, the **Canvas REST API** for bCourses, and the **Google Tasks API** for reminders.
+It logs into Gradescope with your email/password (there's no API), talks to Canvas over its REST API with a personal token, and writes reminders to Google Tasks or Notion depending on how you configure it.
 
----
+## What it does
 
-## ✨ Features
+- Pulls every unsubmitted assignment from Gradescope and Canvas
+- Creates a reminder for each one with the due date and a link to the assignment, grouped by course
+- Safe to run repeatedly — it won't create duplicates
+- Moves the reminder if a due date changes, and checks it off once you submit
+- Works with any Canvas school, not just Berkeley's bCourses
 
-- 🔍 Checks **Gradescope** and **Canvas** for every unsubmitted assignment due soon
-- ✅ Creates a Google Tasks reminder for each one, with:
-  - The exact deadline
-  - A link straight to the assignment
-- 🗂️ One Google Tasks list per course (e.g. `CS 61A`, `EECS 126`)
-- 🔁 Safe to re-run — never creates duplicates
-- 📆 Moves the reminder if a due date changes
-- ☑️ Checks the task off automatically once you've submitted
-- 🐻 Built for Berkeley's bCourses, but works with **any school that uses Canvas**
-- 🔒 Runs entirely on your own computer — no server, no accounts, nothing collected
-
-What it looks like in Google Tasks:
+Example of what shows up:
 
 ```
 EECS 126
@@ -30,108 +23,115 @@ EE 66
   ☐ Lecture 1B Mini-Vitamin        Sep 5
 ```
 
----
+Everything runs locally. There's no server and nothing gets collected — the only network calls are to Gradescope, Canvas, and whichever reminder destination you pick.
 
-## 🚀 Setup
+## Setup
 
-Takes about three minutes. You'll need **Python 3.10+**.
-
-### 1️⃣ Install
+You need Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
 git clone https://github.com/ShreekarKarjagi/I_wish_I_could_remember_when_my_home_work_was_due.git assignment-sync
 cd assignment-sync
-python -m venv .venv
-# Windows: .venv\Scripts\activate      macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 cp .env.example .env        # Windows: copy .env.example .env
 ```
 
-Everything you set up goes in `.env`. It's git-ignored, so it stays on your computer. 🔒
+`uv sync` creates a virtualenv and installs everything from the lockfile. Everything else you configure goes in `.env`, which stays on your machine and is never committed.
 
-### 2️⃣ Gradescope
+**Gradescope** — put `GRADESCOPE_EMAIL` and `GRADESCOPE_PASSWORD` in `.env`. If you've only ever logged in through SSO, set a password first at gradescope.com/reset_password — SSO keeps working alongside it.
 
-Gradescope has no API, so the script logs in with your email and password.
+**Canvas** — go to Account → Settings → Approved Integrations → New Access Token, and copy it into `CANVAS_TOKEN`. Set `CANVAS_BASE_URL` to your school's Canvas address (defaults to Berkeley's bCourses). Watch out for the token wrapping onto a second line in `.env` — if it does, the script silently skips Canvas.
 
-- Put `GRADESCOPE_EMAIL` and `GRADESCOPE_PASSWORD` in `.env`
-- 💡 Only ever used SSO? Set a password at https://www.gradescope.com/reset_password — SSO keeps working alongside it
+### Where reminders go
 
-### 3️⃣ Canvas
+Set `REMINDER_DESTINATION` to `google_tasks` (the default) or `notion`.
 
-- In Canvas: **Account → Settings → Approved Integrations → + New Access Token**
-- Name it anything, leave expiry blank, copy the token into `CANVAS_TOKEN` in `.env`
-- Set `CANVAS_BASE_URL` to your school's Canvas address (Berkeley's `https://bcourses.berkeley.edu` is the default)
-- ⚠️ Make sure the token is on the **same line** as `CANVAS_TOKEN=` — if it wraps to the next line, Canvas gets silently skipped
+**Google Tasks** needs no setup — just run the script. The first real run opens a browser tab to log into Google. You'll see an "unverified app" warning (it's a student project, not a company) — click through it and allow access. It saves a token afterward and won't ask again.
 
-### 4️⃣ Run it
+The OAuth client in `credentials.json` is one I registered so you don't have to set up your own Google Cloud project. It only identifies the app to Google and can't access anyone's account by itself — you still log in with your own account. If you'd rather use your own, or if Google's 100-user cap on unverified apps is ever hit, create a Desktop OAuth client in the Google Cloud Console and swap it in.
+
+**Notion** takes a few minutes to set up:
+
+1. Set `REMINDER_DESTINATION=notion` in `.env`.
+2. Create an integration at [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy its secret into `NOTION_TOKEN`.
+3. Create (or reuse) a database with these properties — the type matters, not just the name: a title property renamed to `Name`, a `Course` select, a `Due` date, a `URL` url property, and a `Done` checkbox.
+4. Open the database, click the `···` menu → Connect to, and pick your integration — otherwise it can't see the database.
+5. Copy the database id into `NOTION_DATABASE_ID` (the 32-character id in the database's URL, before any `?v=`).
+
+Every course lands in the same database and is told apart by its `Course` property, rather than a separate database per course.
+
+You can switch destinations later without losing anything — reminders already created under the old one are left alone, and everything still due gets recreated under the new one.
+
+### Run it
 
 ```bash
-python sync.py --dry-run   # preview what it would add, changes nothing
-python sync.py             # the real thing
+uv run sync.py --dry-run   # see what it would do, without changing anything
+uv run sync.py             # the real thing
 ```
 
-The first real run opens a browser tab:
+## Running it automatically
 
-1. Pick the Google account you want the reminders in (a school account is fine)
-2. Google shows **"Google hasn't verified this app"** — that's because a student made it, not a company. Click **Continue** (sometimes under "Advanced")
-3. Click **Allow**
-
-It saves a `token.json` and never asks again. Open Google Tasks and your assignments are there. 🎉
-
-
-## 🔁 Run It Automatically
-
-### 🪟 Windows (Task Scheduler)
-
-`run_sync.bat` runs the script with the project's `.venv` and logs to `sync.log`. In PowerShell (fix the path):
+**Windows (Task Scheduler)** — `run_sync.bat` runs the script and logs to `sync.log`:
 
 ```powershell
 schtasks /Create /TN "AssignmentSync" /SC DAILY /ST 07:00 /TR "C:\path\to\assignment-sync\run_sync.bat" /F
 ```
 
-- ▶️ Test now: `schtasks /Run /TN "AssignmentSync"`, then check `sync.log`
-- ⏱️ Every 6 hours instead: use `/SC HOURLY /MO 6`
-- ❌ Remove: `schtasks /Delete /TN "AssignmentSync" /F`
+Test it with `schtasks /Run /TN "AssignmentSync"` and check `sync.log`. Remove it with `schtasks /Delete /TN "AssignmentSync" /F`.
 
-### 🍎🐧 macOS / Linux (cron)
+**macOS/Linux (cron)**:
 
 ```bash
 chmod +x run_sync.sh
 crontab -e
-# add this line to run every day at 7:00
-0 7 * * * /path/to/assignment-sync/run_sync.sh
+# 0 7 * * * /path/to/assignment-sync/run_sync.sh
 ```
 
----
+## Options
 
-## 🔧 Options
-
-All in `.env`:
+All set in `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `LOOKAHEAD_DAYS` | `21` | Only create reminders for assignments due within this many days |
-| `REMIND_DAYS_BEFORE` | `0` | Date the reminder this many days *before* the deadline (the real due date is always in the notes) |
+| `REMINDER_DESTINATION` | `google_tasks` | `google_tasks` or `notion` |
+| `LOOKAHEAD_DAYS` | `21` | Only remind for assignments due within this many days |
+| `REMIND_DAYS_BEFORE` | `0` | Set the reminder this many days before the actual due date |
 | `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |
 
-## 📁 Files It Creates
+**Course names.** Gradescope calls a class `CS 61A`; Canvas calls it `2026-FA-COMPSCI-61A-001`. The script normalizes both to the same label so they land in one group. If something ends up in the wrong place, add a mapping in `course_aliases.json`. If your school uses different department abbreviations, edit `DEPT_ALIASES` in `sources/base.py`.
+
+## Files it creates
 
 | File | Purpose |
 |---|---|
 | `token.json` | Your Google login — delete it to re-authorize |
-| `synced.json` | Memory of what's already been added — delete it to re-add everything (clear your Tasks lists too, or you'll get duplicates) |
+| `synced.json` | Tracks what's already been added, so it isn't duplicated — delete it to start over (clear your reminders too, or you'll get duplicates) |
 | `sync.log` | Output from scheduled runs |
 
-All of these plus `.env` are git-ignored. Please don't commit them. 🙏
+None of these are committed to git, along with `.env`.
 
----
+## Keeping secrets out of git
 
-## 🔐 Privacy
+A pre-commit hook refuses to commit `.env`, `token.json`, or `synced.json`, as a backstop in case `.gitignore` is ever loosened by mistake. It lives in `.githooks/` rather than `.git/hooks/` so it's actually version-controlled — enable it once per clone:
 
-Nothing leaves your computer except requests to Gradescope, Canvas, and Google's Tasks API. Your password and tokens live only in your local `.env` and `token.json`. Full policy: [PRIVACY.md](PRIVACY.md).
+```bash
+git config core.hooksPath .githooks
+```
 
----
+## Development
 
-## 📄 License
+Each assignment source (Gradescope, Canvas) is its own file under `sources/`, behind a small interface: `enabled()` and `fetch(aliases)`. Adding a new school site means writing one new file, not touching the sync logic. Same idea for reminder destinations under `destinations/` — see `sources/canvas.py` and `destinations/notion.py` for the pattern.
 
-MIT — see [LICENSE](LICENSE). ✌️
+```bash
+uv run pytest -q
+```
+
+The tests mock every network call, so they never touch your real `.env`, `synced.json`, or `token.json`. They cover course-name normalization, each source and destination's request formatting, and the sync logic itself — added/updated/completed/skipped, reruns never duplicating a task, and switching destinations never patching the wrong service.
+
+## Privacy
+
+Nothing leaves your computer except requests to Gradescope, Canvas, and whichever destination you configured. Full policy in [PRIVACY.md](PRIVACY.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
