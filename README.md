@@ -110,24 +110,6 @@ All set in `.env`:
 
 None of these are committed to git, along with `.env`.
 
-## Keeping secrets out of git
-
-A pre-commit hook refuses to commit `.env`, `token.json`, or `synced.json`, as a backstop in case `.gitignore` is ever loosened by mistake. It lives in `.githooks/` rather than `.git/hooks/` so it's actually version-controlled — enable it once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-## Development
-
-Each assignment source (Gradescope, Canvas) is its own file under `sources/`, behind a small interface: `enabled()` and `fetch(aliases)`. Adding a new school site means writing one new file, not touching the sync logic. Same idea for reminder destinations under `destinations/` — see `sources/canvas.py` and `destinations/notion.py` for the pattern.
-
-```bash
-uv run pytest -q
-```
-
-The tests mock every network call, so they never touch your real `.env`, `synced.json`, or `token.json`. They cover course-name normalization, each source and destination's request formatting, and the sync logic itself — added/updated/completed/skipped, reruns never duplicating a task, and switching destinations never patching the wrong service.
-
 ## Privacy
 
 Nothing leaves your computer except requests to Gradescope, Canvas, and whichever destination you configured. Full policy in [PRIVACY.md](PRIVACY.md).
