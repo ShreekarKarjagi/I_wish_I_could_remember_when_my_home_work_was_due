@@ -1,0 +1,26 @@
+[project]
+name = "assignment-sync"
+version = "0.1.0"
+description = "Pulls Gradescope and Canvas deadlines and turns them into Google Tasks reminders"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "gradescopeapi>=1.0",
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.2",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
