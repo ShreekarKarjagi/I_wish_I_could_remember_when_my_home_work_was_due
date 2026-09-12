@@ -26,7 +26,7 @@ EE 66
 Everything runs locally. There's no server and nothing gets collected — the only network calls are to Gradescope, Canvas, and whichever reminder destination you pick.
 
 ## Setup
-
+Setup takes ~15 mins if your using google tasks and ~20 if your using notion. If you get stuck at any point in time, just copy and paste this README into an LLM and let it guide you
 You need Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
