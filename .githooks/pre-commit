@@ -1,0 +1,19 @@
+#!/bin/sh
+# Refuses to commit files that must never leave this machine -- a backstop
+# on top of .gitignore in case an ignore rule is ever loosened by accident
+# or someone force-adds a file. Bypass deliberately with `git commit --no-verify`.
+
+blocked_pattern='(^|/)(\.env|token\.json(\.[A-Za-z0-9]+)?|synced\.json|sync\.log|credentials\.json\.local)$'
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+offenders=$(printf '%s\n' "$staged" | grep -E "$blocked_pattern" | grep -v '\.env\.example$')
+
+if [ -n "$offenders" ]; then
+    echo "commit blocked -- these files must never be committed:" >&2
+    printf '%s\n' "$offenders" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "If this is genuinely intentional: git commit --no-verify" >&2
+    exit 1
+fi
+
+exit 0
