@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-assignment-sync: pull upcoming assignments from Gradescope + bCourses (Canvas)
-and create reminders for them in Google Tasks, one task list per course.
+assignment-sync: pull upcoming assignments from every enabled source
+(Gradescope, Canvas, ...) and create reminders for them in the destination
+you choose (Google Tasks, Notion), one list/database group per course.
 
 Run:  python sync.py            (normal sync)
       python sync.py --dry-run  (print what would happen, touch nothing)
+
+To add a new site, see sources/__init__.py.
+To add a new reminder destination, see destinations/__init__.py.
 """
 
 from __future__ import annotations
@@ -13,15 +17,14 @@ import argparse
 import json
 import logging
 import os
-import re
-import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
-import requests
 from dotenv import load_dotenv
+
+from destinations import Destination, get_destination
+from sources import ALL_SOURCES, Assignment, load_aliases
 
 # ----------------------------------------------------------------------------
 # Config
@@ -30,242 +33,16 @@ from dotenv import load_dotenv
 HERE = Path(__file__).resolve().parent
 load_dotenv(HERE / ".env")
 
-GRADESCOPE_EMAIL = os.getenv("GRADESCOPE_EMAIL", "")
-GRADESCOPE_PASSWORD = os.getenv("GRADESCOPE_PASSWORD", "")
-CANVAS_BASE_URL = os.getenv("CANVAS_BASE_URL", "https://bcourses.berkeley.edu").rstrip("/")
-CANVAS_TOKEN = os.getenv("CANVAS_TOKEN", "")
-
 # Only create reminders for assignments due within this many days.
 LOOKAHEAD_DAYS = int(os.getenv("LOOKAHEAD_DAYS", "21"))
 # Put the reminder this many days BEFORE the due date (0 = on the due date).
 REMIND_DAYS_BEFORE = int(os.getenv("REMIND_DAYS_BEFORE", "0"))
+# Where reminders go: "google_tasks" (default) or "notion". See destinations/.
+REMINDER_DESTINATION = os.getenv("REMINDER_DESTINATION", "google_tasks")
 
-GOOGLE_CREDENTIALS = HERE / "credentials.json"
-GOOGLE_TOKEN = HERE / "token.json"
 STATE_FILE = HERE / "synced.json"
-ALIASES_FILE = HERE / "course_aliases.json"
-
-SCOPES = ["https://www.googleapis.com/auth/tasks"]
 
 log = logging.getLogger("sync")
-
-
-# ----------------------------------------------------------------------------
-# Data model
-# ----------------------------------------------------------------------------
-
-@dataclass
-class Assignment:
-    source: str            # "gradescope" | "canvas"
-    source_id: str
-    course: str            # normalized course label, e.g. "CS 61A"
-    title: str
-    due: datetime | None   # timezone-aware
-    url: str = ""
-    submitted: bool = False
-
-    @property
-    def key(self) -> str:
-        return f"{self.source}:{self.source_id}"
-
-
-# ----------------------------------------------------------------------------
-# Course-name normalization
-# ----------------------------------------------------------------------------
-
-DEPT_ALIASES = {
-    "COMPSCI": "CS", "ELENG": "EE", "MATH": "Math", "PHYSICS": "Physics",
-    "DATA": "Data", "STAT": "Stat", "ENGIN": "Engin",
-}
-_COURSE_RE = re.compile(r"\b([A-Z]{2,8})\s*[- ]?\s*([A-Z]?\d{1,3}[A-Z]{0,2})\b", re.IGNORECASE)
-
-
-def load_aliases() -> dict[str, str]:
-    if ALIASES_FILE.exists():
-        try:
-            return json.loads(ALIASES_FILE.read_text())
-        except json.JSONDecodeError:
-            log.warning("course_aliases.json is not valid JSON; ignoring it")
-    return {}
-
-
-def normalize_course(raw: str, aliases: dict[str, str]) -> str:
-    """Turn 'Fall 2026 COMPSCI 61A 001' or 'CS 61A' into 'CS 61A'."""
-    if raw in aliases:
-        return aliases[raw]
-    m = _COURSE_RE.search(raw)
-    if not m:
-        return raw.strip()
-    dept, num = m.group(1).upper(), m.group(2).upper()
-    label = f"{DEPT_ALIASES.get(dept, dept)} {num}"
-    return aliases.get(label, label)
-
-
-# ----------------------------------------------------------------------------
-# Gradescope
-# ----------------------------------------------------------------------------
-
-def fetch_gradescope(aliases: dict[str, str]) -> list[Assignment]:
-    if not (GRADESCOPE_EMAIL and GRADESCOPE_PASSWORD):
-        log.info("Gradescope credentials not set; skipping Gradescope")
-        return []
-
-    from gradescopeapi.classes.connection import GSConnection
-
-    conn = GSConnection()
-    conn.login(GRADESCOPE_EMAIL, GRADESCOPE_PASSWORD)
-    courses = conn.account.get_courses().get("student", {})
-    out: list[Assignment] = []
-
-    for course_id, course in courses.items():
-        label = normalize_course(course.name or course.full_name, aliases)
-        try:
-            items = conn.account.get_assignments(course_id)
-        except Exception as e:  # noqa: BLE001
-            log.warning("Gradescope: could not read course %s (%s): %s", label, course_id, e)
-            continue
-        for it in items:
-            status = (it.submissions_status or "").lower()
-            out.append(Assignment(
-                source="gradescope",
-                source_id=str(it.assignment_id),
-                course=label,
-                title=it.name.strip(),
-                due=_aware(it.due_date),
-                url=f"https://www.gradescope.com/courses/{course_id}/assignments/{it.assignment_id}",
-                submitted="submitted" in status and "no submission" not in status,
-            ))
-    log.info("Gradescope: %d assignments across %d courses", len(out), len(courses))
-    return out
-
-
-# ----------------------------------------------------------------------------
-# bCourses (Canvas)
-# ----------------------------------------------------------------------------
-
-def _canvas_get(path: str, **params) -> list[dict]:
-    url = f"{CANVAS_BASE_URL}/api/v1{path}"
-    headers = {"Authorization": f"Bearer {CANVAS_TOKEN}"}
-    params.setdefault("per_page", 100)
-    results: list[dict] = []
-    while url:
-        r = requests.get(url, headers=headers, params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        results.extend(data if isinstance(data, list) else [data])
-        url = r.links.get("next", {}).get("url")
-        params = {}
-    return results
-
-
-def fetch_canvas(aliases: dict[str, str]) -> list[Assignment]:
-    if not CANVAS_TOKEN:
-        log.info("CANVAS_TOKEN not set; skipping bCourses")
-        return []
-
-    courses = _canvas_get("/courses", enrollment_state="active", enrollment_type="student")
-    out: list[Assignment] = []
-    for c in courses:
-        label = normalize_course(c.get("course_code") or c.get("name") or str(c["id"]), aliases)
-        try:
-            items = _canvas_get(f"/courses/{c['id']}/assignments",
-                                **{"include[]": "submission", "order_by": "due_at"})
-        except requests.HTTPError as e:
-            log.warning("bCourses: could not read %s: %s", label, e)
-            continue
-        for it in items:
-            if not it.get("published", True):
-                continue
-            state = (it.get("submission") or {}).get("workflow_state", "unsubmitted")
-            out.append(Assignment(
-                source="canvas",
-                source_id=str(it["id"]),
-                course=label,
-                title=(it.get("name") or "").strip(),
-                due=_parse_iso(it.get("due_at")),
-                url=it.get("html_url", ""),
-                submitted=state in ("submitted", "graded", "pending_review"),
-            ))
-    log.info("bCourses: %d assignments across %d courses", len(out), len(courses))
-    return out
-
-
-# ----------------------------------------------------------------------------
-# Google Tasks
-# ----------------------------------------------------------------------------
-
-class GoogleTasks:
-    def __init__(self, dry_run: bool = False):
-        self.dry_run = dry_run
-        self.service = None if dry_run else self._build()
-        self._lists: dict[str, str] | None = None
-
-    @staticmethod
-    def _build():
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
-        from googleapiclient.discovery import build
-
-        creds = None
-        if GOOGLE_TOKEN.exists():
-            creds = Credentials.from_authorized_user_file(str(GOOGLE_TOKEN), SCOPES)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not GOOGLE_CREDENTIALS.exists():
-                    sys.exit(f"Missing {GOOGLE_CREDENTIALS.name}. See README for the Google Cloud setup.")
-                flow = InstalledAppFlow.from_client_secrets_file(str(GOOGLE_CREDENTIALS), SCOPES)
-                creds = flow.run_local_server(port=0)
-            GOOGLE_TOKEN.write_text(creds.to_json())
-        return build("tasks", "v1", credentials=creds, cache_discovery=False)
-
-    def list_id(self, course: str) -> str:
-        if self._lists is None:
-            self._lists = {}
-            if not self.dry_run:
-                page = None
-                while True:
-                    resp = self.service.tasklists().list(maxResults=100, pageToken=page).execute()
-                    for tl in resp.get("items", []):
-                        self._lists[tl["title"]] = tl["id"]
-                    page = resp.get("nextPageToken")
-                    if not page:
-                        break
-        if course not in self._lists:
-            log.info("Creating task list %r", course)
-            if self.dry_run:
-                self._lists[course] = f"dry-{course}"
-            else:
-                self._lists[course] = self.service.tasklists().insert(body={"title": course}).execute()["id"]
-        return self._lists[course]
-
-    def insert(self, list_id: str, body: dict) -> str:
-        if self.dry_run:
-            return "dry-task"
-        return self.service.tasks().insert(tasklist=list_id, body=body).execute()["id"]
-
-    def patch(self, list_id: str, task_id: str, body: dict) -> None:
-        if self.dry_run:
-            return
-        try:
-            self.service.tasks().patch(tasklist=list_id, task=task_id, body=body).execute()
-        except Exception as e:  # noqa: BLE001  (task deleted by hand, etc.)
-            log.warning("Could not update task %s: %s", task_id, e)
-
-
-def reminder_date(due: datetime) -> str:
-    """Google Tasks keeps only the date part of 'due'; send local date as midnight UTC."""
-    d = (due - timedelta(days=REMIND_DAYS_BEFORE)).astimezone().date()
-    return f"{d.isoformat()}T00:00:00.000Z"
-
-
-def task_body(a: Assignment) -> dict:
-    notes = ["Due: " + a.due.astimezone().strftime("%a %b %d, %I:%M %p")]
-    if a.url:
-        notes.append(a.url)
-    return {"title": a.title, "notes": "\n".join(notes), "due": reminder_date(a.due)}
 
 
 # ----------------------------------------------------------------------------
@@ -281,24 +58,39 @@ def load_state() -> dict:
     return {}
 
 
-def sync(assignments: Iterable[Assignment], dry_run: bool) -> None:
+def sync(assignments: Iterable[Assignment], dry_run: bool, destination: Destination | None = None) -> dict:
+    """Reconcile `assignments` against synced.json and the reminder destination.
+
+    Returns the added/updated/completed/skipped counts (mainly so tests
+    don't have to scrape log output). `destination` lets callers (tests)
+    inject a fake in place of a real GoogleTasksDestination/NotionDestination.
+    """
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=LOOKAHEAD_DAYS)
     state = load_state()
-    gt = GoogleTasks(dry_run=dry_run)
+    dest = destination if destination is not None else get_destination(REMINDER_DESTINATION, dry_run=dry_run)
     added = updated = completed = skipped = 0
 
     for a in assignments:
         rec = state.get(a.key)
 
+        # A record from a *different* destination than the one active now
+        # (the user switched REMINDER_DESTINATION) is stale: its list_id/
+        # task_id belong to the other service and patching them would just
+        # fail. Treat it as untracked so it gets recreated under the new
+        # destination. Records written before this field existed are
+        # implicitly "google_tasks" -- the only destination that ever existed.
+        if rec and rec.get("destination", "google_tasks") != dest.name:
+            rec = None
+
         if rec:  # already tracked: keep the reminder in sync
             if a.submitted and not rec.get("completed"):
-                gt.patch(rec["list_id"], rec["task_id"], {"status": "completed"})
+                dest.patch(rec["list_id"], rec["task_id"], dest.completed_body())
                 rec["completed"] = True
                 completed += 1
                 log.info("Completed: %s / %s", a.course, a.title)
             elif a.due and rec.get("due") != a.due.isoformat():
-                gt.patch(rec["list_id"], rec["task_id"], task_body(a))
+                dest.patch(rec["list_id"], rec["task_id"], dest.task_body(a))
                 rec["due"] = a.due.isoformat()
                 updated += 1
                 log.info("Due date changed: %s / %s", a.course, a.title)
@@ -308,10 +100,11 @@ def sync(assignments: Iterable[Assignment], dry_run: bool) -> None:
             skipped += 1
             continue
 
-        list_id = gt.list_id(a.course)
-        task_id = gt.insert(list_id, task_body(a))
+        list_id = dest.list_id(a.course)
+        task_id = dest.insert(list_id, dest.task_body(a))
         state[a.key] = {"list_id": list_id, "task_id": task_id, "due": a.due.isoformat(),
-                        "title": a.title, "course": a.course, "completed": False}
+                        "title": a.title, "course": a.course, "completed": False,
+                        "destination": dest.name}
         added += 1
         log.info("Added %s / %s (due %s)", a.course, a.title, a.due.astimezone().strftime("%b %d"))
 
@@ -319,20 +112,7 @@ def sync(assignments: Iterable[Assignment], dry_run: bool) -> None:
         STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
     log.info("Done: %d added, %d updated, %d marked complete, %d skipped",
              added, updated, completed, skipped)
-
-
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
-
-def _aware(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def _parse_iso(s: str | None) -> datetime | None:
-    return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
+    return {"added": added, "updated": updated, "completed": completed, "skipped": skipped}
 
 
 def main() -> None:
@@ -345,15 +125,18 @@ def main() -> None:
 
     aliases = load_aliases()
     assignments: list[Assignment] = []
-    for fetch in (fetch_gradescope, fetch_canvas):
+    for source in ALL_SOURCES:
         try:
-            assignments.extend(fetch(aliases))
+            assignments.extend(source.fetch(aliases))
         except Exception as e:  # noqa: BLE001
-            log.error("%s failed: %s", fetch.__name__, e)
+            log.error("%s failed: %s", source.name, e)
     if not assignments:
         log.warning("No assignments fetched from any source; check your .env")
         return
-    sync(assignments, dry_run=args.dry_run)
+
+    destination = get_destination(REMINDER_DESTINATION, dry_run=args.dry_run)
+    log.info("Reminder destination: %s%s", destination.name, " (dry run)" if args.dry_run else "")
+    sync(assignments, dry_run=args.dry_run, destination=destination)
 
 
 if __name__ == "__main__":
