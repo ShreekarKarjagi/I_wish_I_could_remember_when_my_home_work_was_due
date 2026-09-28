@@ -44,7 +44,7 @@ cp .env.example .env        # Windows: copy .env.example .env
 
 ### Where reminders go
 
-Set `REMINDER_DESTINATION` to `google_tasks` (the default) or `notion`.
+Set `REMINDER_DESTINATION` to `google_tasks` (the default), `notion`, or `todoist`.
 
 **Google Tasks** needs no setup — just run the script. The first real run opens a browser tab to log into Google. You'll see an "unverified app" warning (it's a student project, not a company) — click through it and allow access. It saves a token afterward and won't ask again. The good thing about the tasks being in the g-suite is that deadlines automatically show up in in google calendar separate to your actual schedule so whenever you check your schedule, you can also easily glance at what assignments are due when   
 
@@ -59,6 +59,13 @@ The OAuth client in `credentials.json` is one I registered so you don't have to 
 5. Copy the database id into `NOTION_DATABASE_ID` (the 32-character id in the database's URL, before any `?v=`).
 
 Every course lands in the same database and is told apart by its `Course` property, rather than a separate database per course.
+
+**Todoist** is the quickest of the three to set up:
+
+1. Set `REMINDER_DESTINATION=todoist` in `.env`.
+2. Grab a personal token from Todoist → Settings → Integrations → Developer, and copy it into `TODOIST_TOKEN`.
+
+That's it. It creates one Todoist project per course automatically, same as Google Tasks does with lists.
 
 You can switch destinations later without losing anything — reminders already created under the old one are left alone, and everything still due gets recreated under the new one.
 
@@ -93,7 +100,7 @@ All set in `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `REMINDER_DESTINATION` | `google_tasks` | `google_tasks` or `notion` |
+| `REMINDER_DESTINATION` | `google_tasks` | `google_tasks`, `notion`, or `todoist` |
 | `LOOKAHEAD_DAYS` | `21` | Only remind for assignments due within this many days |
 | `REMIND_DAYS_BEFORE` | `0` | Set the reminder this many days before the actual due date |
 | `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |

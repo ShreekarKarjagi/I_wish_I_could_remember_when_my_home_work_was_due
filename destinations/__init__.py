@@ -12,10 +12,12 @@ from __future__ import annotations
 from .base import Assignment, Destination
 from .google_tasks import GoogleTasksDestination
 from .notion import NotionDestination
+from .todoist import TodoistDestination
 
 REGISTRY: dict[str, type] = {
     "google_tasks": GoogleTasksDestination,
     "notion": NotionDestination,
+    "todoist": TodoistDestination,
 }
 
 
