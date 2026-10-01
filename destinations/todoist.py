@@ -33,6 +33,7 @@ class TodoistDestination:
     def __init__(self, dry_run: bool = False) -> None:
         self.dry_run = dry_run
         self._projects: dict[str, str] | None = None
+        self._session: requests.Session | None = None
 
     @property
     def token(self) -> str:
@@ -45,20 +46,26 @@ class TodoistDestination:
     def enabled(self) -> bool:
         return bool(self.token)
 
-    def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self.token}"}
+    def _get_session(self) -> requests.Session:
+        # One persistent connection instead of a fresh TLS handshake on every
+        # call -- a sync run can list/create several projects and tasks.
+        if self._session is None:
+            session = requests.Session()
+            session.headers["Authorization"] = f"Bearer {self.token}"
+            self._session = session
+        return self._session
 
     def list_id(self, course: str) -> str:
         if self._projects is None:
             self._projects = {}
             if not self.dry_run:
+                session = self._get_session()
                 cursor = ""
                 while True:
                     params = {"limit": 200}
                     if cursor:
                         params["cursor"] = cursor
-                    r = requests.get(f"{API_BASE}/projects", headers=self._headers(),
-                                      params=params, timeout=30)
+                    r = session.get(f"{API_BASE}/projects", params=params, timeout=30)
                     r.raise_for_status()
                     data = r.json()
                     for p in data.get("results", []):
@@ -71,8 +78,7 @@ class TodoistDestination:
             if self.dry_run:
                 self._projects[course] = f"dry-{course}"
             else:
-                r = requests.post(f"{API_BASE}/projects", headers=self._headers(),
-                                   json={"name": course}, timeout=30)
+                r = self._get_session().post(f"{API_BASE}/projects", json={"name": course}, timeout=30)
                 r.raise_for_status()
                 self._projects[course] = r.json()["id"]
         return self._projects[course]
@@ -97,8 +103,7 @@ class TodoistDestination:
     def insert(self, list_id: str, body: dict) -> str:
         if self.dry_run:
             return "dry-task"
-        r = requests.post(f"{API_BASE}/tasks", headers=self._headers(),
-                           json={**body, "project_id": list_id}, timeout=30)
+        r = self._get_session().post(f"{API_BASE}/tasks", json={**body, "project_id": list_id}, timeout=30)
         r.raise_for_status()
         return r.json()["id"]
 
@@ -106,12 +111,11 @@ class TodoistDestination:
         if self.dry_run:
             return
         try:
+            session = self._get_session()
             if body.get("_complete"):
-                r = requests.post(f"{API_BASE}/tasks/{task_id}/close",
-                                   headers=self._headers(), timeout=30)
+                r = session.post(f"{API_BASE}/tasks/{task_id}/close", timeout=30)
             else:
-                r = requests.post(f"{API_BASE}/tasks/{task_id}", headers=self._headers(),
-                                   json=body, timeout=30)
+                r = session.post(f"{API_BASE}/tasks/{task_id}", json=body, timeout=30)
             r.raise_for_status()
         except requests.HTTPError as e:  # task deleted by hand, etc.
             log.warning("Could not update Todoist task %s: %s", task_id, e)

@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
@@ -125,11 +126,15 @@ def main() -> None:
 
     aliases = load_aliases()
     assignments: list[Assignment] = []
-    for source in ALL_SOURCES:
-        try:
-            assignments.extend(source.fetch(aliases))
-        except Exception as e:  # noqa: BLE001
-            log.error("%s failed: %s", source.name, e)
+    # Sources don't depend on each other, so fetch them all at once instead
+    # of waiting for Gradescope to finish before even starting Canvas.
+    with ThreadPoolExecutor(max_workers=len(ALL_SOURCES)) as pool:
+        futures = {pool.submit(source.fetch, aliases): source for source in ALL_SOURCES}
+        for future, source in futures.items():
+            try:
+                assignments.extend(future.result())
+            except Exception as e:  # noqa: BLE001
+                log.error("%s failed: %s", source.name, e)
     if not assignments:
         log.warning("No assignments fetched from any source; check your .env")
         return

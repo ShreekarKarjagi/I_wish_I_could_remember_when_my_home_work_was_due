@@ -45,6 +45,7 @@ class NotionDestination:
 
     def __init__(self, dry_run: bool = False) -> None:
         self.dry_run = dry_run
+        self._session: requests.Session | None = None
 
     @property
     def token(self) -> str:
@@ -61,12 +62,18 @@ class NotionDestination:
     def enabled(self) -> bool:
         return bool(self.token and self.database_id)
 
-    def _headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Notion-Version": NOTION_VERSION,
-            "Content-Type": "application/json",
-        }
+    def _get_session(self) -> requests.Session:
+        # One persistent connection instead of a fresh TLS handshake on every
+        # insert()/patch() call -- a sync run can create/update many pages.
+        if self._session is None:
+            session = requests.Session()
+            session.headers.update({
+                "Authorization": f"Bearer {self.token}",
+                "Notion-Version": NOTION_VERSION,
+                "Content-Type": "application/json",
+            })
+            self._session = session
+        return self._session
 
     def list_id(self, course: str) -> str:
         # Notion groups by the "Course" property below instead of a separate
@@ -91,9 +98,8 @@ class NotionDestination:
     def insert(self, list_id: str, body: dict) -> str:
         if self.dry_run:
             return "dry-page"
-        r = requests.post(
+        r = self._get_session().post(
             f"{API_BASE}/pages",
-            headers=self._headers(),
             json={"parent": {"database_id": list_id}, **body},
             timeout=30,
         )
@@ -104,8 +110,7 @@ class NotionDestination:
         if self.dry_run:
             return
         try:
-            r = requests.patch(f"{API_BASE}/pages/{task_id}", headers=self._headers(),
-                                json=body, timeout=30)
+            r = self._get_session().patch(f"{API_BASE}/pages/{task_id}", json=body, timeout=30)
             r.raise_for_status()
         except requests.HTTPError as e:  # page deleted/archived by hand, etc.
             log.warning("Could not update Notion page %s: %s", task_id, e)

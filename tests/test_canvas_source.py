@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from sources.canvas import CanvasSource
 
@@ -18,6 +19,14 @@ def source(monkeypatch):
     monkeypatch.setenv("CANVAS_TOKEN", "tok123")
     monkeypatch.setenv("CANVAS_BASE_URL", "https://canvas.example.edu")
     return CanvasSource()
+
+
+def _patch_session_get(monkeypatch, fake_get):
+    """fake_get(self, url, params=None, timeout=None) -- patched on the
+    Session class, since CanvasSource now issues requests through a shared
+    requests.Session rather than the bare requests.get function (connection
+    reuse across the concurrent per-course fetches in fetch())."""
+    monkeypatch.setattr(requests.Session, "get", fake_get)
 
 
 def test_disabled_without_token(monkeypatch):
@@ -46,15 +55,12 @@ def test_fetch_maps_assignment_fields(source, monkeypatch):
         },
     ]
 
-    calls = []
-
-    def fake_get(url, headers, params, timeout):
-        calls.append(url)
+    def fake_get(self, url, params=None, timeout=None):
         if "/courses/1/assignments" in url:
             return _resp(assignments)
         return _resp(courses)
 
-    monkeypatch.setattr("sources.canvas.requests.get", fake_get)
+    _patch_session_get(monkeypatch, fake_get)
 
     out = source.fetch({})
 
@@ -72,32 +78,51 @@ def test_fetch_skips_unpublished_assignments(source, monkeypatch):
     courses = [{"id": 1, "course_code": "CS 61A"}]
     assignments = [{"id": 1, "name": "Draft", "due_at": None, "published": False}]
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(self, url, params=None, timeout=None):
         if "assignments" in url:
             return _resp(assignments)
         return _resp(courses)
 
-    monkeypatch.setattr("sources.canvas.requests.get", fake_get)
+    _patch_session_get(monkeypatch, fake_get)
     assert source.fetch({}) == []
 
 
 def test_fetch_continues_when_one_course_errors(source, monkeypatch):
-    import requests
-
     courses = [{"id": 1, "course_code": "CS 61A"}, {"id": 2, "course_code": "CS 70"}]
     good_assignments = [{"id": 5, "name": "HW", "due_at": None, "published": True}]
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(self, url, params=None, timeout=None):
         if "/courses/1/assignments" in url:
             raise requests.HTTPError("500 server error")
         if "/courses/2/assignments" in url:
             return _resp(good_assignments)
         return _resp(courses)
 
-    monkeypatch.setattr("sources.canvas.requests.get", fake_get)
+    _patch_session_get(monkeypatch, fake_get)
     out = source.fetch({})
     assert len(out) == 1
     assert out[0].course == "CS 70"
+
+
+def test_fetch_runs_course_requests_concurrently(source, monkeypatch):
+    # Not a timing assertion (too flaky) -- just confirms every course's
+    # assignment list actually gets fetched when there are more courses
+    # than fit in one batch of MAX_WORKERS, i.e. the pool drains properly.
+    from sources.canvas import MAX_WORKERS
+
+    n_courses = MAX_WORKERS * 2 + 1
+    courses = [{"id": i, "course_code": f"CS {i}"} for i in range(n_courses)]
+
+    def fake_get(self, url, params=None, timeout=None):
+        for c in courses:
+            if f"/courses/{c['id']}/assignments" in url:
+                return _resp([{"id": c["id"], "name": "HW", "due_at": None, "published": True}])
+        return _resp(courses)
+
+    _patch_session_get(monkeypatch, fake_get)
+    out = source.fetch({})
+    assert len(out) == n_courses
+    assert {a.course for a in out} == {f"CS {i}" for i in range(n_courses)}
 
 
 def test_get_follows_pagination_links(source, monkeypatch):
@@ -105,9 +130,28 @@ def test_get_follows_pagination_links(source, monkeypatch):
     page2 = _resp([{"id": 2}])
     responses = iter([page1, page2])
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(self, url, params=None, timeout=None):
         return next(responses)
 
-    monkeypatch.setattr("sources.canvas.requests.get", fake_get)
+    _patch_session_get(monkeypatch, fake_get)
     result = source._get("/courses")
     assert [r["id"] for r in result] == [1, 2]
+
+
+def test_session_is_reused_across_calls(source, monkeypatch):
+    seen_sessions = []
+
+    def fake_get(self, url, params=None, timeout=None):
+        seen_sessions.append(self)
+        return _resp([])
+
+    _patch_session_get(monkeypatch, fake_get)
+    source._get("/courses")
+    source._get("/courses")
+    assert len(seen_sessions) == 2
+    assert seen_sessions[0] is seen_sessions[1]
+
+
+def test_session_sends_bearer_auth_header(source):
+    session = source._get_session()
+    assert session.headers["Authorization"] == "Bearer tok123"

@@ -81,23 +81,26 @@ def test_insert_posts_to_pages_endpoint_with_parent(dest, monkeypatch):
     response = MagicMock()
     response.json.return_value = {"id": "page-123"}
     response.raise_for_status = MagicMock()
+    session = dest._get_session()
     post = MagicMock(return_value=response)
-    monkeypatch.setattr("destinations.notion.requests.post", post)
+    monkeypatch.setattr(session, "post", post)
 
     page_id = dest.insert("db-1", {"properties": {"Name": {}}})
 
     assert page_id == "page-123"
     _, kwargs = post.call_args
     assert kwargs["json"]["parent"] == {"database_id": "db-1"}
-    assert kwargs["headers"]["Authorization"] == "Bearer secret_abc123"
-    assert kwargs["headers"]["Notion-Version"]
+    # Auth/version headers are set once on the session, not per-call.
+    assert session.headers["Authorization"] == "Bearer secret_abc123"
+    assert session.headers["Notion-Version"]
 
 
 def test_patch_sends_properties_to_page_endpoint(dest, monkeypatch):
     response = MagicMock()
     response.raise_for_status = MagicMock()
+    session = dest._get_session()
     patch = MagicMock(return_value=response)
-    monkeypatch.setattr("destinations.notion.requests.patch", patch)
+    monkeypatch.setattr(session, "patch", patch)
 
     dest.patch("db-1", "page-123", {"properties": {"Done": {"checkbox": True}}})
 
@@ -111,6 +114,11 @@ def test_patch_swallows_http_errors_for_deleted_pages(dest, monkeypatch):
 
     response = MagicMock()
     response.raise_for_status.side_effect = requests.HTTPError("404 not found")
-    monkeypatch.setattr("destinations.notion.requests.patch", MagicMock(return_value=response))
+    session = dest._get_session()
+    monkeypatch.setattr(session, "patch", MagicMock(return_value=response))
 
     dest.patch("db-1", "page-123", {"properties": {}})  # must not raise
+
+
+def test_session_is_reused_across_calls(dest):
+    assert dest._get_session() is dest._get_session()
