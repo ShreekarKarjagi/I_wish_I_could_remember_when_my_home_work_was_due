@@ -20,6 +20,8 @@ from datetime import timedelta, timezone
 
 import requests
 
+from reliability.net import make_session
+
 from .base import Assignment
 
 log = logging.getLogger("sync")
@@ -50,9 +52,7 @@ class TodoistDestination:
         # One persistent connection instead of a fresh TLS handshake on every
         # call -- a sync run can list/create several projects and tasks.
         if self._session is None:
-            session = requests.Session()
-            session.headers["Authorization"] = f"Bearer {self.token}"
-            self._session = session
+            self._session = make_session({"Authorization": f"Bearer {self.token}"})
         return self._session
 
     def list_id(self, course: str) -> str:
@@ -107,9 +107,9 @@ class TodoistDestination:
         r.raise_for_status()
         return r.json()["id"]
 
-    def patch(self, list_id: str, task_id: str, body: dict) -> None:
+    def patch(self, list_id: str, task_id: str, body: dict) -> bool:
         if self.dry_run:
-            return
+            return True
         try:
             session = self._get_session()
             if body.get("_complete"):
@@ -117,5 +117,10 @@ class TodoistDestination:
             else:
                 r = session.post(f"{API_BASE}/tasks/{task_id}", json=body, timeout=30)
             r.raise_for_status()
-        except requests.HTTPError as e:  # task deleted by hand, etc.
-            log.warning("Could not update Todoist task %s: %s", task_id, e)
+            return True
+        except requests.RequestException as e:
+            if getattr(e.response, "status_code", None) in (404, 410):  # deleted by hand
+                log.info("Todoist task %s no longer exists; leaving it alone", task_id)
+                return True
+            log.warning("Could not update Todoist task %s (will retry next run): %s", task_id, e)
+            return False

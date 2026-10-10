@@ -3,7 +3,7 @@
 # on top of .gitignore in case an ignore rule is ever loosened by accident
 # or someone force-adds a file. Bypass deliberately with `git commit --no-verify`.
 
-blocked_pattern='(^|/)(\.env|token\.json(\.[A-Za-z0-9]+)?|synced\.json|sync\.log|credentials\.json\.local)$'
+blocked_pattern='(^|/)(\.env|token\.json(\.[A-Za-z0-9]+)?|synced\.json(\.[A-Za-z0-9]+)?|sync\.log(\.[0-9]+)?|sync\.lock|status\.json|credentials\.json\.local)$'
 
 staged=$(git diff --cached --name-only --diff-filter=ACM)
 offenders=$(printf '%s\n' "$staged" | grep -E "$blocked_pattern" | grep -v '\.env\.example$')

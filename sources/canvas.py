@@ -7,7 +7,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
-from requests.adapters import HTTPAdapter
+
+from reliability.net import make_session
 
 from .base import Assignment, normalize_course, parse_iso
 
@@ -42,10 +43,8 @@ class CanvasSource:
         # instead of a fresh TCP+TLS handshake per call -- matters a lot once
         # fetch() is firing several of these concurrently (see MAX_WORKERS).
         if self._session is None:
-            session = requests.Session()
-            session.headers["Authorization"] = f"Bearer {self.token}"
-            session.mount("https://", HTTPAdapter(pool_maxsize=MAX_WORKERS))
-            self._session = session
+            self._session = make_session({"Authorization": f"Bearer {self.token}"},
+                                         pool_maxsize=MAX_WORKERS)
         return self._session
 
     def _get(self, path: str, **params) -> list[dict]:
@@ -67,23 +66,26 @@ class CanvasSource:
         try:
             items = self._get(f"/courses/{course['id']}/assignments",
                                **{"include[]": "submission", "order_by": "due_at"})
-        except requests.HTTPError as e:
+        except requests.RequestException as e:
             log.warning("bCourses: could not read %s: %s", label, e)
             return []
         out: list[Assignment] = []
         for it in items:
             if not it.get("published", True):
                 continue
-            state = (it.get("submission") or {}).get("workflow_state", "unsubmitted")
-            out.append(Assignment(
-                source=self.name,
-                source_id=str(it["id"]),
-                course=label,
-                title=(it.get("name") or "").strip(),
-                due=parse_iso(it.get("due_at")),
-                url=it.get("html_url", ""),
-                submitted=state in ("submitted", "graded", "pending_review"),
-            ))
+            try:
+                state = (it.get("submission") or {}).get("workflow_state", "unsubmitted")
+                out.append(Assignment(
+                    source=self.name,
+                    source_id=str(it["id"]),
+                    course=label,
+                    title=(it.get("name") or "").strip(),
+                    due=parse_iso(it.get("due_at")),
+                    url=it.get("html_url", ""),
+                    submitted=state in ("submitted", "graded", "pending_review"),
+                ))
+            except Exception as e:  # noqa: BLE001  one odd assignment shouldn't sink the source
+                log.warning("bCourses: skipping malformed assignment %r in %s: %s", it.get("id"), label, e)
         return out
 
     def fetch(self, aliases: dict[str, str]) -> list[Assignment]:

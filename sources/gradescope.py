@@ -43,16 +43,20 @@ class GradescopeSource:
             return []
         out: list[Assignment] = []
         for it in items:
-            status = (it.submissions_status or "").lower()
-            out.append(Assignment(
-                source="gradescope",
-                source_id=str(it.assignment_id),
-                course=label,
-                title=it.name.strip(),
-                due=aware(it.due_date),
-                url=f"https://www.gradescope.com/courses/{course_id}/assignments/{it.assignment_id}",
-                submitted="submitted" in status and "no submission" not in status,
-            ))
+            try:
+                status = (it.submissions_status or "").lower()
+                out.append(Assignment(
+                    source="gradescope",
+                    source_id=str(it.assignment_id),
+                    course=label,
+                    title=it.name.strip(),
+                    due=aware(it.due_date),
+                    url=f"https://www.gradescope.com/courses/{course_id}/assignments/{it.assignment_id}",
+                    submitted="submitted" in status and "no submission" not in status,
+                ))
+            except Exception as e:  # noqa: BLE001  one odd assignment shouldn't sink the source
+                log.warning("Gradescope: skipping malformed assignment %r in %s: %s",
+                            getattr(it, "assignment_id", None), label, e)
         return out
 
     def fetch(self, aliases: dict[str, str]) -> list[Assignment]:

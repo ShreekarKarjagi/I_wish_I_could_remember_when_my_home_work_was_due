@@ -16,6 +16,8 @@ HERE = Path(__file__).resolve().parent.parent
 GOOGLE_CREDENTIALS = HERE / "credentials.json"
 GOOGLE_TOKEN = HERE / "token.json"
 SCOPES = ["https://www.googleapis.com/auth/tasks"]
+# googleapiclient retries 5xx/429/dropped connections with backoff this many times.
+RETRIES = 3
 
 
 class GoogleTasksDestination:
@@ -78,7 +80,7 @@ class GoogleTasksDestination:
             if not self.dry_run:
                 page = None
                 while True:
-                    resp = self.service.tasklists().list(maxResults=100, pageToken=page).execute()
+                    resp = self.service.tasklists().list(maxResults=100, pageToken=page).execute(num_retries=RETRIES)
                     for tl in resp.get("items", []):
                         self._lists[tl["title"]] = tl["id"]
                     page = resp.get("nextPageToken")
@@ -89,7 +91,7 @@ class GoogleTasksDestination:
             if self.dry_run:
                 self._lists[course] = f"dry-{course}"
             else:
-                self._lists[course] = self.service.tasklists().insert(body={"title": course}).execute()["id"]
+                self._lists[course] = self.service.tasklists().insert(body={"title": course}).execute(num_retries=RETRIES)["id"]
         return self._lists[course]
 
     def task_body(self, a: Assignment) -> dict:
@@ -109,12 +111,19 @@ class GoogleTasksDestination:
     def insert(self, list_id: str, body: dict) -> str:
         if self.dry_run:
             return "dry-task"
-        return self.service.tasks().insert(tasklist=list_id, body=body).execute()["id"]
+        return self.service.tasks().insert(tasklist=list_id, body=body).execute(num_retries=RETRIES)["id"]
 
-    def patch(self, list_id: str, task_id: str, body: dict) -> None:
+    def patch(self, list_id: str, task_id: str, body: dict) -> bool:
         if self.dry_run:
-            return
+            return True
         try:
-            self.service.tasks().patch(tasklist=list_id, task=task_id, body=body).execute()
-        except Exception as e:  # noqa: BLE001  (task deleted by hand, etc.)
-            log.warning("Could not update task %s: %s", task_id, e)
+            self.service.tasks().patch(tasklist=list_id, task=task_id,
+                                       body=body).execute(num_retries=RETRIES)
+            return True
+        except Exception as e:  # noqa: BLE001
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status in (404, 410):  # deleted by hand: nothing left to update
+                log.info("Task %s no longer exists in Google Tasks; leaving it alone", task_id)
+                return True
+            log.warning("Could not update task %s (will retry next run): %s", task_id, e)
+            return False

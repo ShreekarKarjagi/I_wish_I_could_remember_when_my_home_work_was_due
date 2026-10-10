@@ -16,10 +16,20 @@ from sources import base as sources_base
 def isolated_files(tmp_path, monkeypatch):
     """Point every module-level file path at a scratch directory."""
     monkeypatch.setattr(sync, "STATE_FILE", tmp_path / "synced.json")
+    monkeypatch.setattr(sync, "STATUS_FILE", tmp_path / "status.json")
+    monkeypatch.setattr(sync, "LOCK_FILE", tmp_path / "sync.lock")
     monkeypatch.setattr(google_tasks_module, "GOOGLE_TOKEN", tmp_path / "token.json")
     monkeypatch.setattr(google_tasks_module, "GOOGLE_CREDENTIALS", tmp_path / "credentials.json")
     monkeypatch.setattr(sources_base, "ALIASES_FILE", tmp_path / "course_aliases.json")
     yield tmp_path
+
+
+@pytest.fixture(autouse=True)
+def notifications(monkeypatch):
+    """Capture desktop notifications instead of really showing them."""
+    sent = []
+    monkeypatch.setattr(sync, "notify", lambda title, message: sent.append((title, message)) or True)
+    return sent
 
 
 @pytest.fixture
@@ -50,6 +60,8 @@ class FakeDestination:
         self._next_list_id = 0
         self._next_task_id = 0
         self.patched: list[tuple[str, str, dict]] = []
+        self.patch_ok = True        # set False to simulate a failed update
+        self.fail_insert_for: set[str] = set()  # titles whose insert() raises
 
     def enabled(self) -> bool:
         return True
@@ -67,15 +79,20 @@ class FakeDestination:
         return {"status": "completed"}
 
     def insert(self, list_id: str, body: dict) -> str:
+        if body.get("title") in self.fail_insert_for:
+            raise RuntimeError("simulated insert failure")
         self._next_task_id += 1
         task_id = f"task-{self._next_task_id}"
         self.tasks[task_id] = {**body, "list_id": list_id, "status": "needsAction"}
         return task_id
 
-    def patch(self, list_id: str, task_id: str, body: dict) -> None:
+    def patch(self, list_id: str, task_id: str, body: dict) -> bool:
         self.patched.append((list_id, task_id, dict(body)))
+        if not self.patch_ok:
+            return False
         if task_id in self.tasks:
             self.tasks[task_id].update(body)
+        return True
 
 
 @pytest.fixture

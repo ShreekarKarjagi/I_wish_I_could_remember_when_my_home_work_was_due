@@ -2,8 +2,10 @@
 # (credentials.json is intentionally NOT ignored: it's a public desktop OAuth client id, see README)
 .env
 token.json*
-synced.json
-sync.log
+synced.json*
+sync.log*
+sync.lock
+status.json
 
 # python / IDE
 __pycache__/
