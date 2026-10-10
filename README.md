@@ -104,6 +104,7 @@ All set in `.env`:
 | `LOOKAHEAD_DAYS` | `21` | Only remind for assignments due within this many days |
 | `REMIND_DAYS_BEFORE` | `0` | Set the reminder this many days before the actual due date |
 | `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |
+| `SYNC_TIMEOUT_SECONDS` | `600` | A run still going after this long is stuck; it gives up so it can't block the next scheduled run |
 
 **Course names.** Gradescope calls a class `CS 61A`; Canvas calls it `2026-FA-COMPSCI-61A-001`. The script normalizes both to the same label so they land in one group. If something ends up in the wrong place, add a mapping in `course_aliases.json`. If your school uses different department abbreviations, edit `DEPT_ALIASES` in `sources/base.py`.
 
@@ -112,10 +113,16 @@ All set in `.env`:
 | File | Purpose |
 |---|---|
 | `token.json` | Your Google login — delete it to re-authorize |
-| `synced.json` | Tracks what's already been added, so it isn't duplicated — delete it to start over (clear your reminders too, or you'll get duplicates) |
-| `sync.log` | Output from scheduled runs |
+| `synced.json` | Tracks what's already been added, so it isn't duplicated — delete it to start over (clear your reminders too, or you'll get duplicates). `synced.json.bak` is a mirror copy it restores from if the main file ever gets damaged |
+| `sync.log` | Output from scheduled runs (rolls over to `sync.log.1` past ~1 MB) |
+| `status.json` | When it last succeeded, and how many runs in a row have failed |
+| `sync.lock` | Stops two syncs from running at once |
 
 None of these are committed to git, along with `.env`.
+
+### When something goes wrong
+
+Failed runs exit non-zero (Task Scheduler's "Last Result" shows it) and `status.json` records why. If it needs you to do something — like signing in to Google again — or fails twice in a row, you get a desktop notification (at most one a day). One flaky network moment won't ping you.
 
 ## Privacy
 
