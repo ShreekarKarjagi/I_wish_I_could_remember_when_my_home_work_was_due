@@ -48,7 +48,7 @@ Set `REMINDER_DESTINATION` to `google_tasks` (the default), `notion`, or `todois
 
 **Google Tasks** needs no setup — just run the script. The first real run opens a browser tab to log into Google. You'll see an "unverified app" warning (it's a student project, not a company) — click through it and allow access. It saves a token afterward and won't ask again. The good thing about the tasks being in the g-suite is that deadlines automatically show up in in google calendar separate to your actual schedule so whenever you check your schedule, you can also easily glance at what assignments are due when   
 
-The OAuth client in `credentials.json` is one I registered so you don't have to set up your own Google Cloud project. It only identifies the app to Google and can't access anyone's account by itself — you still log in with your own account. If you'd rather use your own, or if Google's 100-user cap on unverified apps is ever hit, create a Desktop OAuth client in the Google Cloud Console and swap it in.
+The OAuth client in `credentials.json` is one I registered so you don't have to set up your own Google Cloud project. It only identifies the app to Google and can't access anyone's account by itself — you still log in with your own account. If you'd rather use your own, or if Google's 100-user cap on unverified apps is ever hit, create a Desktop OAuth client in the Google Cloud Console and swap it in. Set its publishing status to "In production" (OAuth consent screen → Publish app) — while it's in "Testing", Google expires your login every 7 days and the sync quietly stops until you sign in again.
 
 **Notion** takes a few minutes to set up:
 

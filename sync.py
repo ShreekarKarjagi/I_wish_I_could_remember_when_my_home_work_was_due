@@ -124,6 +124,11 @@ def main() -> None:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 
+    # Set up the destination first: if its login is dead (e.g. an expired
+    # Google token) we want to know right away, not after a slow fetch.
+    destination = get_destination(REMINDER_DESTINATION, dry_run=args.dry_run)
+    log.info("Reminder destination: %s%s", destination.name, " (dry run)" if args.dry_run else "")
+
     aliases = load_aliases()
     assignments: list[Assignment] = []
     # Sources don't depend on each other, so fetch them all at once instead
@@ -139,8 +144,6 @@ def main() -> None:
         log.warning("No assignments fetched from any source; check your .env")
         return
 
-    destination = get_destination(REMINDER_DESTINATION, dry_run=args.dry_run)
-    log.info("Reminder destination: %s%s", destination.name, " (dry run)" if args.dry_run else "")
     sync(assignments, dry_run=args.dry_run, destination=destination)
 
 

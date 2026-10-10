@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock
 
 from destinations.google_tasks import GoogleTasksDestination
@@ -88,3 +89,111 @@ def test_enabled_reflects_credentials_file_presence(tmp_path, monkeypatch):
     assert gt.enabled() is False
     (tmp_path / "credentials.json").write_text("{}")
     assert gt.enabled() is True
+
+
+# --- _build(): what happens when the saved Google login stops working -------
+
+class _FakeCreds:
+    def __init__(self, refresh_error=None):
+        self.valid = False
+        self.expired = True
+        self.refresh_token = "r"
+        self._refresh_error = refresh_error
+
+    def refresh(self, request):
+        if self._refresh_error:
+            raise self._refresh_error
+        self.valid = True
+
+    def to_json(self):
+        return '{"fake": "token"}'
+
+
+def _patch_google(monkeypatch, tmp_path, creds, *, interactive, flow_creds=None):
+    """Stub out everything _build() imports so it never touches the network."""
+    import sys
+    import types
+
+    import destinations.google_tasks as gt_module
+
+    token = tmp_path / "token.json"
+    token.write_text("{}")
+    monkeypatch.setattr(gt_module, "GOOGLE_TOKEN", token)
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text("{}")
+    monkeypatch.setattr(gt_module, "GOOGLE_CREDENTIALS", creds_file)
+
+    class FakeCredentials:
+        from_authorized_user_file = staticmethod(lambda *a, **k: creds)
+
+    class FakeFlow:
+        ran = False
+
+        @classmethod
+        def from_client_secrets_file(cls, *a, **k):
+            return cls()
+
+        def run_local_server(self, port=0):
+            FakeFlow.ran = True
+            return flow_creds
+
+    built = {}
+
+    def fake_build(*a, **k):
+        built["creds"] = k["credentials"]
+        return "SERVICE"
+
+    mods = {
+        "google.oauth2.credentials": types.SimpleNamespace(Credentials=FakeCredentials),
+        "google_auth_oauthlib.flow": types.SimpleNamespace(InstalledAppFlow=FakeFlow),
+        "googleapiclient.discovery": types.SimpleNamespace(build=fake_build),
+    }
+    for name, mod in mods.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    monkeypatch.setattr("sys.stdin", types.SimpleNamespace(isatty=lambda: interactive))
+    monkeypatch.delenv("ASSIGNMENT_SYNC_UNATTENDED", raising=False)
+    return FakeFlow, built
+
+
+def test_build_uses_refreshed_token_when_refresh_succeeds(monkeypatch, tmp_path):
+    creds = _FakeCreds()
+    flow, built = _patch_google(monkeypatch, tmp_path, creds, interactive=False)
+    assert GoogleTasksDestination._build() == "SERVICE"
+    assert built["creds"] is creds
+    assert flow.ran is False
+
+
+def test_build_exits_with_clear_message_when_refresh_fails_unattended(monkeypatch, tmp_path):
+    from google.auth.exceptions import RefreshError
+
+    creds = _FakeCreds(refresh_error=RefreshError("invalid_grant"))
+    flow, _ = _patch_google(monkeypatch, tmp_path, creds, interactive=False)
+    with pytest.raises(SystemExit, match="sign in again"):
+        GoogleTasksDestination._build()
+    assert flow.ran is False  # never tries to open a browser on a scheduled run
+
+
+def test_build_reauthorizes_when_refresh_fails_interactively(monkeypatch, tmp_path):
+    from google.auth.exceptions import RefreshError
+
+    creds = _FakeCreds(refresh_error=RefreshError("invalid_grant"))
+    fresh = _FakeCreds()
+    flow, built = _patch_google(monkeypatch, tmp_path, creds, interactive=True, flow_creds=fresh)
+    assert GoogleTasksDestination._build() == "SERVICE"
+    assert flow.ran is True
+    assert built["creds"] is fresh
+    assert (tmp_path / "token.json").read_text() == '{"fake": "token"}'
+
+
+def test_build_exits_when_flagged_unattended_even_if_a_terminal_is_attached(monkeypatch, tmp_path):
+    # Task Scheduler can give a scheduled run a real console, so isatty() is
+    # True -- the run scripts set ASSIGNMENT_SYNC_UNATTENDED so we still never
+    # open a browser (which would hang forever waiting for a click).
+    from google.auth.exceptions import RefreshError
+
+    creds = _FakeCreds(refresh_error=RefreshError("invalid_grant"))
+    flow, _ = _patch_google(monkeypatch, tmp_path, creds, interactive=True)
+    monkeypatch.setenv("ASSIGNMENT_SYNC_UNATTENDED", "1")
+    with pytest.raises(SystemExit, match="sign in again"):
+        GoogleTasksDestination._build()
+    assert flow.ran is False

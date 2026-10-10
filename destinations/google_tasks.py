@@ -38,6 +38,7 @@ class GoogleTasksDestination:
 
     @staticmethod
     def _build():
+        from google.auth.exceptions import RefreshError
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -47,9 +48,23 @@ class GoogleTasksDestination:
         if GOOGLE_TOKEN.exists():
             creds = Credentials.from_authorized_user_file(str(GOOGLE_TOKEN), SCOPES)
         if not creds or not creds.valid:
+            refreshed = False
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+                try:
+                    creds.refresh(Request())
+                    refreshed = True
+                except RefreshError as e:
+                    # Google rejected the saved login (expired, revoked, or the
+                    # OAuth app is still in "Testing" so tokens die after 7 days).
+                    log.warning("Saved Google login no longer works: %s", e)
+            if not refreshed:
+                # run_sync.bat / run_sync.sh set ASSIGNMENT_SYNC_UNATTENDED because
+                # isatty() alone isn't reliable (Task Scheduler can attach a console).
+                if os.getenv("ASSIGNMENT_SYNC_UNATTENDED") or not sys.stdin.isatty():
+                    # Scheduled run: there's nobody to click "Allow", and opening
+                    # a browser would just hang. Say what to do instead.
+                    sys.exit("Google login expired or was revoked. Run `uv run sync.py` "
+                             "once in a terminal to sign in again.")
                 if not GOOGLE_CREDENTIALS.exists():
                     sys.exit(f"Missing {GOOGLE_CREDENTIALS.name}. See README for the Google Cloud setup.")
                 flow = InstalledAppFlow.from_client_secrets_file(str(GOOGLE_CREDENTIALS), SCOPES)

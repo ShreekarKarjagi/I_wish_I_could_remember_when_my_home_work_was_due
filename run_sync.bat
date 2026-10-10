@@ -1,6 +1,7 @@
 @echo off
 REM Runs the sync and appends output to sync.log next to the script.
 cd /d "%~dp0"
+set ASSIGNMENT_SYNC_UNATTENDED=1
 where uv >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     uv run sync.py >> sync.log 2>&1
