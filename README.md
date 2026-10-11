@@ -1,8 +1,8 @@
 # I Wish I Could Remember When My Homework Was Due
 
-A script that checks Gradescope and Canvas for upcoming assignments and turns them into reminders — in Google Tasks or Notion, whichever you use — so you don't have to open either site to know what's due.
+A script that checks Gradescope and Canvas for upcoming assignments and turns them into reminders — in Todoist or Notion, whichever you use — so you don't have to open either site to know what's due.
 
-It logs into Gradescope with your email/password (there's no API), talks to Canvas over its REST API with a personal token, and writes reminders to Google Tasks or Notion depending on how you configure it.
+It logs into Gradescope with your email/password (there's no API), talks to Canvas over its REST API with a personal token, and writes reminders to Todoist or Notion depending on how you configure it.
 
 ## What it does
 
@@ -26,7 +26,7 @@ EE 66
 Everything runs locally. There's no server and nothing gets collected — the only network calls are to Gradescope, Canvas, and whichever reminder destination you pick.
 
 ## Setup
-Setup takes ~15 mins if your using google tasks and ~20 if your using notion. If you get stuck at any point in time, just copy and paste this README into an LLM and let it guide you
+Setup takes ~5 mins if you're using Todoist and ~15 if you're using Notion. If you get stuck at any point in time, just copy and paste this README into an LLM and let it guide you
 You need Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
@@ -44,11 +44,14 @@ cp .env.example .env        # Windows: copy .env.example .env
 
 ### Where reminders go
 
-Set `REMINDER_DESTINATION` to `google_tasks` (the default), `notion`, or `todoist`.
+Set `REMINDER_DESTINATION` to `todoist` (the default) or `notion`.
 
-**Google Tasks** needs no setup — just run the script. The first real run opens a browser tab to log into Google. You'll see an "unverified app" warning (it's a student project, not a company) — click through it and allow access. It saves a token afterward and won't ask again. The good thing about the tasks being in the g-suite is that deadlines automatically show up in in google calendar separate to your actual schedule so whenever you check your schedule, you can also easily glance at what assignments are due when   
+**Todoist** is the default and the quickest to set up:
 
-The OAuth client in `credentials.json` is one I registered so you don't have to set up your own Google Cloud project. It only identifies the app to Google and can't access anyone's account by itself — you still log in with your own account. If you'd rather use your own, or if Google's 100-user cap on unverified apps is ever hit, create a Desktop OAuth client in the Google Cloud Console and swap it in. Set its publishing status to "In production" (OAuth consent screen → Publish app) — while it's in "Testing", Google expires your login every 7 days and the sync quietly stops until you sign in again.
+1. Set `REMINDER_DESTINATION=todoist` in `.env`.
+2. Grab a personal token from Todoist → Settings → Integrations → Developer, and copy it into `TODOIST_TOKEN`.
+
+That's it. It creates one Todoist project per course automatically.
 
 **Notion** takes a few minutes to set up:
 
@@ -59,13 +62,6 @@ The OAuth client in `credentials.json` is one I registered so you don't have to 
 5. Copy the database id into `NOTION_DATABASE_ID` (the 32-character id in the database's URL, before any `?v=`).
 
 Every course lands in the same database and is told apart by its `Course` property, rather than a separate database per course.
-
-**Todoist** is the quickest of the three to set up:
-
-1. Set `REMINDER_DESTINATION=todoist` in `.env`.
-2. Grab a personal token from Todoist → Settings → Integrations → Developer, and copy it into `TODOIST_TOKEN`.
-
-That's it. It creates one Todoist project per course automatically, same as Google Tasks does with lists.
 
 You can switch destinations later without losing anything — reminders already created under the old one are left alone, and everything still due gets recreated under the new one.
 
@@ -100,7 +96,7 @@ All set in `.env`:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `REMINDER_DESTINATION` | `google_tasks` | `google_tasks`, `notion`, or `todoist` |
+| `REMINDER_DESTINATION` | `todoist` | `todoist` or `notion` |
 | `LOOKAHEAD_DAYS` | `21` | Only remind for assignments due within this many days |
 | `REMIND_DAYS_BEFORE` | `0` | Set the reminder this many days before the actual due date |
 | `CANVAS_BASE_URL` | `https://bcourses.berkeley.edu` | Your school's Canvas address |
@@ -112,7 +108,6 @@ All set in `.env`:
 
 | File | Purpose |
 |---|---|
-| `token.json` | Your Google login — delete it to re-authorize |
 | `synced.json` | Tracks what's already been added, so it isn't duplicated — delete it to start over (clear your reminders too, or you'll get duplicates). `synced.json.bak` is a mirror copy it restores from if the main file ever gets damaged |
 | `sync.log` | Output from scheduled runs (rolls over to `sync.log.1` past ~1 MB) |
 | `status.json` | When it last succeeded, and how many runs in a row have failed |
@@ -122,7 +117,7 @@ None of these are committed to git, along with `.env`.
 
 ### When something goes wrong
 
-Failed runs exit non-zero (Task Scheduler's "Last Result" shows it) and `status.json` records why. If it needs you to do something — like signing in to Google again — or fails twice in a row, you get a desktop notification (at most one a day). One flaky network moment won't ping you.
+Failed runs exit non-zero (Task Scheduler's "Last Result" shows it) and `status.json` records why. If it needs you to do something — like a destination token that isn't set up — or fails twice in a row, you get a desktop notification (at most one a day). One flaky network moment won't ping you.
 
 ## Privacy
 

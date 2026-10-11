@@ -1,4 +1,4 @@
-"""Shared interface for where reminders get written (Google Tasks, Notion, ...)."""
+"""Shared interface for where reminders get written (Todoist, Notion, ...)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class Destination(Protocol):
         ...
 
     def list_id(self, course: str) -> str:
-        """A grouping id for `course` -- e.g. a Google Tasks list id, or just
+        """A grouping id for `course` -- e.g. a Todoist project id, or just
         the configured Notion database id if this destination groups a
         different way (a "Course" property instead of separate lists)."""
         ...

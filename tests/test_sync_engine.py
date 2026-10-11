@@ -136,9 +136,9 @@ def test_record_from_a_different_destination_is_recreated_not_patched(make_assig
     """Switching REMINDER_DESTINATION shouldn't try to patch the old
     destination's id with the new destination's client -- that would just
     error, since the ids belong to a different service entirely."""
-    google_like = fake_destination_factory("google_tasks")
+    todoist_like = fake_destination_factory("todoist")
     a = make_assignment(days_from_now=5)
-    sync.sync([a], dry_run=False, destination=google_like)
+    sync.sync([a], dry_run=False, destination=todoist_like)
 
     notion_like = fake_destination_factory("notion")
     counts = sync.sync([a], dry_run=False, destination=notion_like)
@@ -148,18 +148,18 @@ def test_record_from_a_different_destination_is_recreated_not_patched(make_assig
     assert len(notion_like.tasks) == 1
 
 
-def test_record_missing_destination_field_is_treated_as_google_tasks(make_assignment, fake_tasks):
-    """synced.json written before this feature existed has no "destination"
-    key at all -- those records must still be recognized as google_tasks so
-    a plain upgrade doesn't re-add everything as duplicates."""
+def test_legacy_record_with_no_destination_is_recreated_not_patched(make_assignment, fake_tasks):
+    """Records with no "destination" were written by the removed Google Tasks
+    support. Their ids mean nothing to the current destination, so they must be
+    recreated rather than patched with ids the new service has never seen."""
     a = make_assignment(days_from_now=5)
     sync.STATE_FILE.write_text(json.dumps({
-        a.key: {"list_id": "list-1", "task_id": "task-1", "due": a.due.isoformat(),
+        a.key: {"list_id": "google-list", "task_id": "google-task", "due": a.due.isoformat(),
                 "title": a.title, "course": a.course, "completed": False},
     }))
-    fake_tasks.name = "google_tasks"
 
     counts = sync.sync([a], dry_run=False, destination=fake_tasks)
 
-    assert counts == {"added": 0, "updated": 0, "completed": 0, "skipped": 0, "failed": 0}
-    assert fake_tasks.tasks == {}  # not recreated -- the old record was honored as-is
+    assert counts["added"] == 1
+    assert fake_tasks.patched == []
+    assert json.loads(sync.STATE_FILE.read_text())[a.key]["destination"] == fake_tasks.name

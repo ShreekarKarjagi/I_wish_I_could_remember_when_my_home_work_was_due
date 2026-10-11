@@ -1,9 +1,10 @@
 """Remembers how recent runs went (status.json) and decides when a failure
 is worth interrupting the user about.
 
-Rules: tell the user right away when they must do something (e.g. sign in
-to Google again); otherwise only after repeated failures, so one flaky
-network moment doesn't ping them. Never more than once a day.
+Rules: tell the user right away when they must do something (e.g. a
+destination token that was never set up); otherwise only after repeated
+failures, so one flaky network moment doesn't ping them. Never more than
+once a day.
 """
 
 from __future__ import annotations

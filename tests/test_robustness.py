@@ -9,7 +9,6 @@ import pytest
 import requests
 
 import sync
-from destinations.google_tasks import GoogleTasksDestination
 from destinations.notion import NotionDestination
 from destinations.todoist import TodoistDestination
 from reliability.lock import FileLock
@@ -118,38 +117,6 @@ def test_http_destinations_patch_results(make_dest, session_method, monkeypatch)
     assert dest.patch("l", "t", {"content": "x"}) is False  # no exception escapes
 
 
-def test_google_patch_results(monkeypatch):
-    class FakeHttpError(Exception):
-        def __init__(self, status):
-            self.resp = MagicMock(status=status)
-
-    dest = GoogleTasksDestination.__new__(GoogleTasksDestination)
-    dest.dry_run = False
-    service = MagicMock()
-    dest.service = service
-    execute = service.tasks().patch().execute
-
-    execute.return_value = {}
-    assert dest.patch("l", "t", {}) is True
-    execute.side_effect = FakeHttpError(404)
-    assert dest.patch("l", "t", {}) is True
-    execute.side_effect = FakeHttpError(500)
-    assert dest.patch("l", "t", {}) is False
-    execute.side_effect = ConnectionError("down")
-    assert dest.patch("l", "t", {}) is False
-
-
-def test_google_calls_ask_the_client_library_to_retry(monkeypatch):
-    dest = GoogleTasksDestination.__new__(GoogleTasksDestination)
-    dest.dry_run = False
-    service = MagicMock()
-    dest.service = service
-    service.tasks().insert().execute.return_value = {"id": "x"}
-    dest.insert("l", {})
-    _, kwargs = service.tasks().insert().execute.call_args
-    assert kwargs.get("num_retries", 0) >= 1
-
-
 # --- running it: outcomes, status, notification, lock, watchdog --------------
 
 class FakeSource:
@@ -210,7 +177,7 @@ def test_one_ordinary_failure_stays_quiet_the_second_notifies(run_main, notifica
 
 def test_failure_needing_the_user_notifies_immediately(monkeypatch, run_main, notifications):
     def dead_login(name, dry_run):
-        raise SystemExit("Google login expired or was revoked. Run `uv run sync.py` once in a terminal.")
+        raise SystemExit("REMINDER_DESTINATION='todoist' isn't configured yet -- see README for setup.")
 
     monkeypatch.setattr(sync, "ALL_SOURCES", [FakeSource("canvas")])
     monkeypatch.setattr(sync, "get_destination", dead_login)
@@ -218,7 +185,7 @@ def test_failure_needing_the_user_notifies_immediately(monkeypatch, run_main, no
     with pytest.raises(SystemExit) as exc:
         sync.main()
     assert exc.value.code == 1
-    assert len(notifications) == 1 and "Google login expired" in notifications[0][1]
+    assert len(notifications) == 1 and "isn't configured" in notifications[0][1]
 
 
 def test_corrupt_state_is_reported_as_needing_attention(run_main, make_assignment, notifications):

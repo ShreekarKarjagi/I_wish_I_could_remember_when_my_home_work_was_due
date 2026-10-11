@@ -4,8 +4,7 @@ Setup:
   1. Get a personal API token from Todoist Settings -> Integrations -> Developer.
   2. Put it in TODOIST_TOKEN.
 
-That's it -- projects are created automatically, one per course, the same
-way Google Tasks creates one list per course.
+That's it -- projects are created automatically, one per course.
 
 Uses the unified Todoist API v1 (https://api.todoist.com/api/v1). The older
 REST v2 endpoints (/rest/v2/...) were sunset and now return 410 Gone, so

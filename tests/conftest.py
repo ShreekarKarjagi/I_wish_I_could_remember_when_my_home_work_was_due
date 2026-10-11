@@ -1,5 +1,5 @@
 """Shared fixtures: redirect every on-disk file sync.py touches into tmp_path,
-so tests never read or write the real .env / synced.json / token.json."""
+so tests never read or write the real .env / synced.json."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import sync
-from destinations import google_tasks as google_tasks_module
 from sources import base as sources_base
 
 
@@ -18,8 +17,6 @@ def isolated_files(tmp_path, monkeypatch):
     monkeypatch.setattr(sync, "STATE_FILE", tmp_path / "synced.json")
     monkeypatch.setattr(sync, "STATUS_FILE", tmp_path / "status.json")
     monkeypatch.setattr(sync, "LOCK_FILE", tmp_path / "sync.lock")
-    monkeypatch.setattr(google_tasks_module, "GOOGLE_TOKEN", tmp_path / "token.json")
-    monkeypatch.setattr(google_tasks_module, "GOOGLE_CREDENTIALS", tmp_path / "credentials.json")
     monkeypatch.setattr(sources_base, "ALIASES_FILE", tmp_path / "course_aliases.json")
     yield tmp_path
 

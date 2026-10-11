@@ -129,7 +129,7 @@ def test_repeated_failures_notify(tmp_path):
 
 def test_failure_that_needs_the_user_notifies_immediately(tmp_path):
     p = tmp_path / "status.json"
-    assert record_result(p, ok=False, error="Google login expired", needs_action=True, now=T0) is True
+    assert record_result(p, ok=False, error="TODOIST_TOKEN is not set", needs_action=True, now=T0) is True
 
 
 def test_notifications_are_rate_limited_to_once_a_day(tmp_path):

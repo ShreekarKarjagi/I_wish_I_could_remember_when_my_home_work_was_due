@@ -1,16 +1,20 @@
 import pytest
 
 from destinations import get_destination
-from destinations.google_tasks import GoogleTasksDestination
 from destinations.notion import NotionDestination
 from destinations.todoist import TodoistDestination
 
 
-def test_defaults_to_google_tasks_when_dry_run(monkeypatch, tmp_path):
-    import destinations.google_tasks as google_tasks_module
-    monkeypatch.setattr(google_tasks_module, "GOOGLE_CREDENTIALS", tmp_path / "credentials.json")
-    dest = get_destination("google_tasks", dry_run=True)
-    assert isinstance(dest, GoogleTasksDestination)
+@pytest.mark.parametrize("unset", [None, "", "   "])
+def test_defaults_to_todoist_when_unset(unset, monkeypatch):
+    monkeypatch.setenv("TODOIST_TOKEN", "t")
+    assert isinstance(get_destination(unset, dry_run=False), TodoistDestination)
+
+
+def test_google_tasks_gets_a_clear_removed_message():
+    # Anyone whose .env still says google_tasks should be told why, not just "unknown".
+    with pytest.raises(SystemExit, match="Google Tasks support was removed"):
+        get_destination("google_tasks", dry_run=False)
 
 
 def test_selects_notion_by_name(monkeypatch):

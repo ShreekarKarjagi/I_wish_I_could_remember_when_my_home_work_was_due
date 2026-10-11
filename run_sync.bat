@@ -1,7 +1,6 @@
 @echo off
 REM Runs the sync and appends output to sync.log next to the script.
 cd /d "%~dp0"
-set ASSIGNMENT_SYNC_UNATTENDED=1
 set PYTHONUTF8=1
 
 REM Roll sync.log over once it passes ~1 MB so it can't grow forever.

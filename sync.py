@@ -2,7 +2,7 @@
 """
 assignment-sync: pull upcoming assignments from every enabled source
 (Gradescope, Canvas, ...) and create reminders for them in the destination
-you choose (Google Tasks, Notion, Todoist), one list/project group per course.
+you choose (Todoist or Notion), one project/group per course.
 
 Run:  python sync.py            (normal sync)
       python sync.py --dry-run  (print what would happen, touch nothing)
@@ -44,8 +44,8 @@ load_dotenv(HERE / ".env")
 LOOKAHEAD_DAYS = int(os.getenv("LOOKAHEAD_DAYS", "21"))
 # Put the reminder this many days BEFORE the due date (0 = on the due date).
 REMIND_DAYS_BEFORE = int(os.getenv("REMIND_DAYS_BEFORE", "0"))
-# Where reminders go: "google_tasks" (default), "notion" or "todoist". See destinations/.
-REMINDER_DESTINATION = os.getenv("REMINDER_DESTINATION", "google_tasks")
+# Where reminders go: "todoist" (default) or "notion". See destinations/.
+REMINDER_DESTINATION = os.getenv("REMINDER_DESTINATION", "todoist")
 # A run still going after this long is stuck (e.g. a site never answers).
 # Give up so it can't block every later scheduled run behind it.
 RUN_TIMEOUT_SECONDS = int(os.getenv("SYNC_TIMEOUT_SECONDS", "600"))
@@ -70,7 +70,7 @@ def sync(assignments: Iterable[Assignment], dry_run: bool, destination: Destinat
 
     Returns the added/updated/completed/skipped/failed counts (mainly so tests
     don't have to scrape log output). `destination` lets callers (tests)
-    inject a fake in place of a real GoogleTasksDestination/NotionDestination.
+    inject a fake in place of a real destination.
     """
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=LOOKAHEAD_DAYS)
@@ -92,9 +92,9 @@ def sync(assignments: Iterable[Assignment], dry_run: bool, destination: Destinat
         # (the user switched REMINDER_DESTINATION) is stale: its list_id/
         # task_id belong to the other service and patching them would just
         # fail. Treat it as untracked so it gets recreated under the new
-        # destination. Records written before this field existed are
-        # implicitly "google_tasks" -- the only destination that ever existed.
-        if rec and rec.get("destination", "google_tasks") != dest.name:
+        # destination. Records with no destination at all were written by the
+        # removed Google Tasks support, so they are stale too.
+        if rec and rec.get("destination") != dest.name:
             rec = None
 
         if rec:  # already tracked: keep the reminder in sync
@@ -198,8 +198,8 @@ def _start_watchdog(seconds: int) -> threading.Timer:
 
 
 def execute(dry_run: bool) -> RunOutcome:
-    # Set up the destination first: if its login is dead (e.g. an expired
-    # Google token) we want to know right away, not after a slow fetch.
+    # Set up the destination first: if its login is dead (e.g. a missing
+    # token) we want to know right away, not after a slow fetch.
     try:
         destination = get_destination(REMINDER_DESTINATION, dry_run=dry_run)
     except SystemExit as e:

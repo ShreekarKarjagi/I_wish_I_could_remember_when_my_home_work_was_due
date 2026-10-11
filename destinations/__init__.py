@@ -1,28 +1,31 @@
 """
 Pluggable reminder destinations. Pick one with REMINDER_DESTINATION in .env
-(default: google_tasks).
+(default: todoist).
 
 To add a new destination: create destinations/<name>.py following
-google_tasks.py or notion.py as a template (see base.py for the interface),
+todoist.py or notion.py as a template (see base.py for the interface),
 then add it to REGISTRY below.
 """
 
 from __future__ import annotations
 
 from .base import Assignment, Destination
-from .google_tasks import GoogleTasksDestination
 from .notion import NotionDestination
 from .todoist import TodoistDestination
 
 REGISTRY: dict[str, type] = {
-    "google_tasks": GoogleTasksDestination,
-    "notion": NotionDestination,
     "todoist": TodoistDestination,
+    "notion": NotionDestination,
 }
 
 
 def get_destination(name: str, *, dry_run: bool) -> Destination:
-    key = (name or "google_tasks").strip().lower()
+    key = (name or "").strip().lower() or "todoist"
+    if key == "google_tasks":
+        raise SystemExit(
+            "Google Tasks support was removed. Set REMINDER_DESTINATION to one of: "
+            f"{', '.join(sorted(REGISTRY))} in .env (see README for setup)."
+        )
     cls = REGISTRY.get(key)
     if cls is None:
         raise SystemExit(
