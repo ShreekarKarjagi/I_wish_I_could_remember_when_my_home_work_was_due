@@ -53,6 +53,8 @@ RUN_TIMEOUT_SECONDS = int(os.getenv("SYNC_TIMEOUT_SECONDS", "600"))
 STATE_FILE = HERE / "synced.json"
 STATUS_FILE = HERE / "status.json"
 LOCK_FILE = HERE / "sync.lock"
+LOG_FILE = HERE / "sync.log"
+MAX_LOG_BYTES = 1_000_000
 
 log = logging.getLogger("sync")
 
@@ -221,11 +223,26 @@ def execute(dry_run: bool) -> RunOutcome:
             watchdog.cancel()
 
 
+def _log_to_file_if_windowless() -> None:
+    """Started with pythonw.exe (how the scheduled task runs, so no console
+    window pops up), there is no stdout/stderr at all. Send everything to
+    sync.log instead, and roll it over past ~1 MB."""
+    if sys.stderr is not None:
+        return
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_BYTES:
+            os.replace(LOG_FILE, LOG_FILE.with_name(LOG_FILE.name + ".1"))
+    except OSError:
+        pass  # another run has it open; it will roll over next time
+    sys.stdout = sys.stderr = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="show what would change; write nothing")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    _log_to_file_if_windowless()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 

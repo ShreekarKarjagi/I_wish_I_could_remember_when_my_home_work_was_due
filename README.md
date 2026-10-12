@@ -74,20 +74,26 @@ uv run sync.py             # the real thing
 
 ## Running it automatically
 
-**Windows (Task Scheduler)** — `run_sync.bat` runs the script and logs to `sync.log`:
+**Windows (Task Scheduler)** — from the project folder, run this once:
 
 ```powershell
-schtasks /Create /TN "AssignmentSync" /SC DAILY /ST 07:00 /TR "C:\path\to\assignment-sync\run_sync.bat" /F
+powershell -ExecutionPolicy Bypass -File .\install_schedule.ps1
 ```
 
-Test it with `schtasks /Run /TN "AssignmentSync"` and check `sync.log`. Remove it with `schtasks /Delete /TN "AssignmentSync" /F`.
+It sets the sync to run four times a day, evenly spread from 9:00 to 22:00 (9:00, 13:20, 17:40, 22:00). Change the times with `-Times '08:00','14:00','20:00'`. It runs with `pythonw.exe`, so no command window pops up (and nobody can close one and kill the run), and it writes its own `sync.log`. If your PC is asleep at a scheduled time, it runs when the PC wakes up and has a network connection.
+
+Test it with `Start-ScheduledTask AssignmentSync` and check `sync.log`. Remove it with `Unregister-ScheduledTask -TaskName AssignmentSync -Confirm:$false`.
 
 **macOS/Linux (cron)**:
 
 ```bash
 chmod +x run_sync.sh
 crontab -e
-# 0 7 * * * /path/to/assignment-sync/run_sync.sh
+# four runs a day, evenly spread from 9:00 to 22:00
+# 0 9 * * *   /path/to/assignment-sync/run_sync.sh
+# 20 13 * * * /path/to/assignment-sync/run_sync.sh
+# 40 17 * * * /path/to/assignment-sync/run_sync.sh
+# 0 22 * * *  /path/to/assignment-sync/run_sync.sh
 ```
 
 ## Options

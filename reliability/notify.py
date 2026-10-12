@@ -35,7 +35,9 @@ def notify(title: str, message: str) -> bool:
     """Show a desktop notification. Returns True if one was handed to the OS."""
     try:
         env = None
+        flags = 0
         if sys.platform == "win32":
+            flags = subprocess.CREATE_NO_WINDOW  # powershell is a console app; don't flash one
             env = {**os.environ, "SYNC_NOTIFY_TITLE": title, "SYNC_NOTIFY_MESSAGE": message}
             cmd = ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
                    "-Command", _WINDOWS_TOAST]
@@ -46,7 +48,8 @@ def notify(title: str, message: str) -> bool:
             cmd = ["notify-send", title, message]
         else:
             return False
-        return subprocess.run(cmd, env=env, timeout=20, capture_output=True).returncode == 0
+        return subprocess.run(cmd, env=env, timeout=20, capture_output=True,
+                              creationflags=flags).returncode == 0
     except Exception as e:  # noqa: BLE001
         log.debug("Could not show notification: %s", e)
         return False
